@@ -5,5 +5,6 @@ namespace trap {
 // A passive copy of TTWVR's grip buttons. Returns -1 for stale/missing tracking.
 unsigned installInput();
 int grips();
+unsigned triggers();
 crouch::Stick rightStick();
 }

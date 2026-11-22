@@ -19,9 +19,9 @@ def string(value):
     return value.encode("ascii") + b"\0"
 
 
-def record(tag, form, fields):
+def record(tag, form, fields, flags=0):
     body = b"".join(struct.pack("<4sH", key, len(value)) + value for key, value in fields)
-    return struct.pack("<4sIIIIHH", tag, len(body), 0, form, 0, 15, 0) + body
+    return struct.pack("<4sIIIIHH", tag, len(body), flags, form, 0, 15, 0) + body
 
 
 def recipe(form, name, ingredients, output):
@@ -34,14 +34,32 @@ def recipe(form, name, ingredients, output):
 
 
 def build():
-    groups = {b"ACTI": [], b"MISC": [], b"RCPE": []}
+    groups = {b"ACTI": [], b"MISC": [], b"STAT": [], b"WEAP": [], b"RCPE": []}
     bounds = struct.pack("<6h", -49, -32, -2, 49, 32, 16)
+    # A stable, weightless hotkey represents the player's stock across condition tiers.
+    held_model = string(r"TTWVRClutter\Held.nif")
+    portable_model = string(r"TTWVRClutter\Portable.nif")
+    groups[b"STAT"].append(record(b"STAT", PLUGIN+0x831, [
+        (b"EDID", string("TTWVRFirstPersonTrap")), (b"OBND", bounds), (b"MODL", held_model)]))
+    tuning = bytearray(204)
+    struct.pack_into("<IffBBBB", tuning, 0, 1, 1., 0., 8, 255, 0, 0)
+    tuning[41] = 255
+    struct.pack_into("<IIf", tuning, 52, 3, 0x41, 1.)
+    struct.pack_into("<i", tuning, 104, 38)
+    struct.pack_into("<fi", tuning, 116, 1., -1)
+    groups[b"WEAP"].append(record(b"WEAP", PLUGIN+0x830, [
+        (b"EDID", string("TTWVRTrapCarrier")), (b"FULL", string("Portable Bear Trap (Place)")),
+        (b"OBND", bounds), (b"MODL", held_model),
+        (b"ICON", string(r"Interface\Icons\PipboyImages\Items\item_junk.dds")),
+        (b"ETYP", u32(3)), (b"WNAM", u32(PLUGIN+0x831)),
+        (b"DATA", struct.pack("<IIfHB", 0, 100, 0., 0, 0)), (b"DNAM", tuning),
+        (b"CRDT", bytes(16)), (b"VNAM", u32(2))], flags=0x400))
     for tier in range(5):
         closed = PLUGIN + CLOSED + tier
         groups[b"MISC"].append(record(b"MISC", closed, [
             (b"EDID", string(f"TTWVRPortableBearTrap{tier}")),
             (b"OBND", bounds), (b"FULL", string(f"Portable Bear Trap ({tier * 25}%)")),
-            (b"MODL", string(MODEL)), (b"ICON", string(r"Interface\Icons\PipboyImages\Items\item_junk.dds")),
+            (b"MODL", portable_model), (b"ICON", string(r"Interface\Icons\PipboyImages\Items\item_junk.dds")),
             (b"DATA", struct.pack("<If", 5 + 5 * tier, 10.0))]))
         if tier:
             groups[b"ACTI"].append(record(b"ACTI", PLUGIN + ARMED + tier, [
@@ -53,7 +71,7 @@ def build():
                                            [(closed, 1), (SCRAP, 1)], closed + 1))
     groups[b"RCPE"].append(recipe(0x820, "Portable Bear Trap", [(SCRAP, 4)], PLUGIN + CLOSED + 4))
     total = sum(len(records) + 1 for records in groups.values())
-    header = record(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.34, total, 0x825)),
+    header = record(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.34, total, 0x832)),
                                  (b"CNAM", string("TTWVR Clutter Distractions")),
                                  (b"MAST", string("FalloutNV.esm")), (b"DATA", bytes(8))])
     for tag, records in groups.items():

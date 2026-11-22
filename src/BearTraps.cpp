@@ -5,6 +5,7 @@
 #include "BearTraps.h"
 #include "TrapGesture.h"
 #include "TrapInput.h"
+#include "TrapCarrier.h"
 #include "World.h"
 #include <cstdio>
 #include <map>
@@ -16,7 +17,9 @@ Scripts* api;
 Arrays* arrays;
 void (*writeLog)(const char*);
 void *scanScript,*swapScript,*positionScript,*poseScript,*spentScript,*skillScript,*noticeScript;
-unsigned prefix;
+unsigned prefix, previousTriggers=3;
+void *grantScript,*deployScript,*stockScript,*emptyScript,*anchorScript;
+Ptr carrier,stockForms[5];
 int repairRequired=55;
 float deepHeight;
 bool ready, blockOnWorldEntry;
@@ -139,7 +142,9 @@ bool move(Ptr ref,Vec p,bool settle) {
 }
 void stop() { selected=0; gesture={}; carryHand=-1; nextMove=0; }
 void settleCarry(Ptr ref) {
-    if (gesture.carried && !move(ref,field<Vec>(ref,0x30),true)) move(ref,originalPos,false);
+    if (!gesture.carried) return;
+    if (move(ref,field<Vec>(ref,0x30),true)) run(anchorScript,ref,1);
+    else move(ref,originalPos,false);
 }
 Ptr swap(Ptr ref,int nextTier,bool armed) {
     auto form=lookup(prefix+(armed ? 0x810u : 0x800u)+nextTier);
@@ -147,11 +152,14 @@ Ptr swap(Ptr ref,int nextTier,bool armed) {
     auto result=run(swapScript,ref,form,int(armed),repairRequired);
     if (result.type!=2 || !result.object) return nullptr;
     auto& created=nearby[id(result.object)];
+    if (!armed) run(anchorScript,result.object,1);
     created.openOnLoad=armed;
     created.observedArmed=armed;
     return result.object;
 }
 void scan(Ptr pc,double now) {
+    if (run(grantScript,carrier,stockForms[0],stockForms[1],stockForms[2],stockForms[3],stockForms[4]).number==1)
+        writeLog("bear_trap=holster_available");
     std::vector<unsigned> found;
     for (int type:{21,31}) {
         auto v=run(scanScript,type);
@@ -188,6 +196,36 @@ bool hands(Ptr pc,Vec (&out)[2]) {
         if (!out[h].valid() || (out[h]-field<Vec>(pc,0x30)).length()>260) return false;
     }
     return true;
+}
+// TTWVR moves the Weapon node to the drawing hand. Read the actual mesh
+// center for placement and use only the trigger beside its grip.
+void useCarrier(Ptr pc,unsigned valid,bool drawn) {
+    unsigned buttons=triggers();
+    unsigned pressed=buttons & ~previousTriggers & valid;
+    previousTriggers=buttons | (3u & ~valid);
+    if (!drawn || !pressed) return;
+    Ptr process=ptr(pc,0x68);
+    if (!process || field<unsigned char>(process,0x28)>1 || ptr(ptr(process,0x114),8)!=carrier) return;
+    Ptr rig=root(pc);
+    Ptr mount=named(rig,"Weapon");
+    Ptr base=named(mount,"Base:0");
+    Vec palms[2];
+    if (!mount || !base || !hands(pc,palms)) return;
+    auto grip=field<Pose>(mount,0x68).pos;
+    float left=(palms[0]-grip).length(), right=(palms[1]-grip).length();
+    unsigned hand=right<left ? 1 : 0;
+    if (!(pressed & (1u<<hand)) || std::min(left,right)>24) return;
+    Value v=run(stockScript,stockForms[4],stockForms[3],stockForms[2],stockForms[1],stockForms[0]);
+    if (v.type!=2 || !v.object) { run(emptyScript); return; }
+    auto pos=field<Pose>(base,0x68).pos;
+    if (!pos.valid() || (pos-field<Vec>(pc,0x30)).length()>260) return;
+    auto result=run(deployScript,carrier,v.object,int(std::lround(pos.x*16)),
+                    int(std::lround(pos.y*16)),int(std::lround(pos.z*16)));
+    if (result.type==2 && result.object) {
+        run(anchorScript,result.object,1);
+        nearby.try_emplace(id(result.object));
+        note("placed_from_holster",id(result.object),int(id(v.object)&0xff));
+    }
 }
 void interact(Ptr ref,int tier,bool armed,const Vec (&palms)[2],unsigned gripsNow,unsigned pressed,double now) {
     Pose pose=field<Pose>(root(ref),0x68);
@@ -233,6 +271,46 @@ bool initialize(Scripts* scripts,Arrays* arrayApi,void (*logger)(const char*)) {
     Value checked=run(resolve);
     if (checked.type!=2 || !checked.object || field<unsigned char>(checked.object,4)!=31) return false;
     prefix=id(checked.object)&0xff000000;
+    carrier=lookup(prefix+0x830);
+    if (field<unsigned char>(carrier,4)!=40) return false;
+    for (int i=0;i<5;++i) {
+        stockForms[i]=lookup(prefix+0x800+i);
+        if (field<unsigned char>(stockForms[i],4)!=31) return false;
+    }
+    // Motion property 8, value 5 is Havok's fixed body. Keep a deliberate
+    // placement stable through cell reloads. A plain inventory drop stays dynamic.
+    anchorScript=api->compile(R"(ref item
+int remember
+begin Function {item remember}
+ if remember
+  item.AuxVarSetFlt "_TTWVRClutterPlaced" 1
+ elseif eval !(item.AuxVarGetFlt "_TTWVRClutterPlaced")
+  return
+ endif
+ item.SetCollProp "TTWVRPortableTrap" 8 5
+end)");
+    grantScript=api->compile(grantCarrier);
+    deployScript=api->compile(placeCarrier);
+    stockScript=api->compile(R"(ref c4
+ref c3
+ref c2
+ref c1
+ref c0
+begin Function {c4 c3 c2 c1 c0}
+ if player.GetItemCount c4
+  SetFunctionValue c4
+ elseif player.GetItemCount c3
+  SetFunctionValue c3
+ elseif player.GetItemCount c2
+  SetFunctionValue c2
+ elseif player.GetItemCount c1
+  SetFunctionValue c1
+ elseif player.GetItemCount c0
+  SetFunctionValue c0
+ endif
+end)");
+    emptyScript=api->compile("begin Function {}\n MessageEx \"No portable bear traps in inventory.\"\nend");
+    if (!anchorScript || !grantScript || !deployScript || !stockScript || !emptyScript) return false;
     scanScript=api->compile("int kind\nbegin Function {kind}\n SetFunctionValue (player.GetRefs kind 1 1 2048)\nend");
     swapScript=api->compile(swapSource);
     positionScript=api->compile(positionSource);
@@ -264,16 +342,16 @@ void suspend() {
         Ptr ref=lookup(selected); bool armed=false;
         if (tierOf(ref,armed)>=0 && root(ref)) settleCarry(ref);
     }
-    stop(); previousGrips=3; previousValid=0;
+    stop(); previousGrips=3; previousValid=0; previousTriggers=3;
 }
 void reset() {
     crouch::suspend();
     blockOnWorldEntry=true;
-    stop(); nearby.clear(); nextScan=0; previousGrips=3; previousValid=0;
+    stop(); nearby.clear(); nextScan=0; previousGrips=3; previousValid=0; previousTriggers=3;
 }
-void frame(Ptr pc,double now) {
+void frame(Ptr pc,double now,bool drawn) {
     if (!ready) return;
-    crouch::update(rightStick(),deepHeight,writeLog);
+    crouch::update(rightStick(),deepHeight,now,writeLog);
     if (blockOnWorldEntry) {
         for (unsigned tier=1; tier<=4; ++tier)
             if (auto form=lookup(prefix+0x810+tier)) run(block,form);
@@ -285,6 +363,7 @@ void frame(Ptr pc,double now) {
     unsigned down=input<0 ? 0u : unsigned(input&3);
     unsigned pressed=down & ~previousGrips & previousValid & valid;
     previousGrips=down; previousValid=valid;
+    useCarrier(pc,valid,drawn);
     bool canReach=false;
     for (auto& [key,state]:nearby) {
         Ptr ref=lookup(key); bool armed=false;
@@ -293,7 +372,8 @@ void frame(Ptr pc,double now) {
         if (!node) continue;
         if (state.root!=node) {
             state.root=node;
-            if (!armed || state.openOnLoad) run(poseScript,ref,int(armed));
+            if (armed && state.openOnLoad) run(poseScript,ref,1);
+            if (!armed) run(anchorScript,ref,0);
             state.openOnLoad=false;
         }
         if (armed && now>=state.due) {

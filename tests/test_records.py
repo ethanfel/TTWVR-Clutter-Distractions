@@ -34,15 +34,17 @@ def records(lo, end):
 all_records = list(records(0, len(raw)))
 header = dict(all_records[0][2])
 assert header[b"MAST"] == b"FalloutNV.esm\0"
-assert struct.unpack("<fII", header[b"HEDR"])[1:] == (len(all_records) - 1, 0x825)
+assert struct.unpack("<fII", header[b"HEDR"])[1:] == (len(all_records) - 1, 0x832)
 forms = {i: (t, f) for t, i, f in all_records if i}
-assert len(forms) == 14
+assert len(forms) == 16
 for tier in range(5):
     item, armed = 0x01000800+tier, 0x01000810+tier
     tag, data = forms[item]
     assert tag == b"MISC" and struct.unpack("<If",dict(data)[b"DATA"])[1] == 10.0
+    assert dict(data)[b"MODL"] == b"TTWVRClutter\\Portable.nif\0"
     if tier:
         tag, data = forms[armed]
+        assert dict(data)[b"MODL"] == b"Traps\\BearTrap01.NIF\0"
         assert tag == b"ACTI" and dict(data)[b"SCRI"] == struct.pack("<I",0x2cba1)
     if tier < 4:
         tag, data = forms[0x01000821+tier]
@@ -51,4 +53,9 @@ for tier in range(5):
 tag, data = forms[0x01000820]
 assert tag == b"RCPE" and struct.unpack("<4I",dict(data)[b"DATA"]) == (39,0,0x13b2c1,0x13e11b)
 assert dict(data)[b"RCOD"] == struct.pack("<I",0x01000804)
-print("Trap records, recipes and master links passed")
+
+tag, data = forms[0x01000830]
+assert tag == b"WEAP" and dict(data)[b"WNAM"] == struct.pack("<I", 0x01000831)
+assert struct.unpack("<IIfHB", dict(data)[b"DATA"])[2:] == (0., 0, 0)
+assert dict(data)[b"MODL"] == dict(forms[0x01000831][1])[b"MODL"] == b"TTWVRClutter\\Held.nif\0"
+print("Trap records, recipes, holster weapon and mesh links passed")

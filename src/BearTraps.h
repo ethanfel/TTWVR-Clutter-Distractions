@@ -3,7 +3,7 @@
 #include "GameScript.h"
 namespace trap {
 bool initialize(Scripts*,Arrays*,void (*logger)(const char*));
-void frame(unsigned char* pc,double now);
+void frame(unsigned char* pc,double now,bool drawn);
 void suspend();
 void reset();
 }

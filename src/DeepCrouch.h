@@ -27,6 +27,36 @@ struct Hold {
     }
 };
 
+enum class Level { off, standing, regular, deep };
+struct Control {
+    enum class Press { none, pass, regular, deep } press{};
+    bool heldLong{}, neutralSeen{}, pulsing{};
+    std::uint32_t pulseStart{};
+    // The normal crouch binding toggles sneak on the down edge. While already
+    // crouched, defer that edge until release so a long hold can go deeper.
+    float filter(Level level,Stick stick,float y,std::uint32_t now,bool& rise) {
+        rise=false;
+        if (level==Level::off || stick==Stick::invalid) { *this={}; return y; }
+        if (stick==Stick::released) {
+            if (press==Press::regular && !heldLong && level==Level::regular) {
+                pulsing=true; pulseStart=now;
+            }
+            press=Press::none; heldLong=false; neutralSeen=true;
+            if (pulsing && now-pulseStart<90 && std::abs(y)<.5f) return -1.f;
+            pulsing=false;
+            return y;
+        }
+        pulsing=false;
+        if (press==Press::none) {
+            press=!neutralSeen || level==Level::standing ? Press::pass :
+                (level==Level::regular ? Press::regular : Press::deep);
+            rise=press==Press::deep;
+        }
+        if (stick==Stick::held) heldLong=true;
+        return press==Press::pass ? y : 0.f;
+    }
+};
+
 struct Stance {
     bool armed{}, active{};
     float original{}, applied{};
@@ -50,6 +80,7 @@ struct Stance {
 
 void bind(unsigned char* host);
 bool available();
-void update(Stick stick,float height,void (*log)(const char*));
+float filter(Stick stick,float y,std::uint32_t now,Control& control);
+void update(Stick stick,float height,double now,void (*log)(const char*));
 void suspend();
 }

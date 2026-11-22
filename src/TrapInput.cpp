@@ -10,11 +10,12 @@
 namespace trap {
 namespace {
 std::atomic<DWORD> sample{};
-constexpr DWORD clockMask=0x03ffffffu;
+constexpr DWORD clockMask=0x00ffffffu;
 using Poll=bool (__thiscall *)(void*, unsigned char*);
 template<int Backend> struct Input {
     static inline Poll next;
     static inline crouch::Hold hold;
+    static inline crouch::Control control;
     static bool __fastcall poll(void* self, void*, unsigned char* frame) {
         bool ok=next(self,frame);
         unsigned bits=0;
@@ -22,6 +23,8 @@ template<int Backend> struct Input {
             const auto* pose=frame+0x40+h*0x40;
             if (pose[0x1c] && pose[0x1d]) {
                 float squeeze; std::memcpy(&squeeze,frame+0x118+4*h,4);
+                float trigger; std::memcpy(&trigger,frame+0x110+4*h,4);
+                if (trigger>=.55f) bits|=1u<<(6+h);
                 bits |= (4u | unsigned(squeeze>=0.55f))<<h;
             }
         }
@@ -29,7 +32,9 @@ template<int Backend> struct Input {
         if (bits&8u) std::memcpy(axes,frame+0x108,sizeof axes);
         DWORD now=GetTickCount();
         auto stick=hold.sample((bits&8u)!=0,axes[0],axes[1],now);
-        sample.store(((now & clockMask)<<6)|(unsigned(stick)<<4)|bits,std::memory_order_relaxed);
+        float filtered=crouch::filter(stick,axes[1],now,control);
+        if ((bits&8u) && filtered!=axes[1]) std::memcpy(frame+0x10c,&filtered,sizeof filtered);
+        sample.store(((now & clockMask)<<8)|(unsigned(stick)<<4)|bits,std::memory_order_relaxed);
         return ok;
     }
     static bool attach(unsigned char* host, unsigned rva) {
@@ -63,12 +68,13 @@ unsigned installInput() {
 }
 static DWORD latest() {
     DWORD value=sample.load(std::memory_order_relaxed);
-    return ((GetTickCount()-(value>>6))&clockMask)<=250 ? value : 0;
+    return ((GetTickCount()-(value>>8))&clockMask)<=250 ? value : 0;
 }
 int grips() {
     DWORD value=latest();
     return value&12 ? int(value&15) : -1;
 }
+unsigned triggers() { return (latest()>>6)&3; }
 crouch::Stick rightStick() {
     return static_cast<crouch::Stick>((latest()>>4)&3);
 }
