@@ -33,8 +33,15 @@ def recipe(form, name, ingredients, output):
     return record(b"RCPE", PLUGIN + form, fields)
 
 
+def tier_id(tier, legacy, extended):
+    return legacy + tier // 5 if tier % 5 == 0 else extended + tier
+
+
 def build():
-    groups = {b"ACTI": [], b"MISC": [], b"STAT": [], b"WEAP": [], b"RCPE": []}
+    groups = {b"FACT": [], b"ACTI": [], b"MISC": [], b"STAT": [], b"WEAP": [], b"FLST": [], b"RCPE": []}
+    # No actors belong to this faction. TTW's native trigger skips the owner.
+    groups[b"FACT"].append(record(b"FACT", PLUGIN+0x832, [
+        (b"EDID", string("TTWVRTrapNeutralOwner")), (b"DATA", u32(1))]))
     bounds = struct.pack("<6h", -49, -32, -2, 49, 32, 16)
     # A stable, weightless hotkey represents the player's stock across condition tiers.
     held_model = string(r"TTWVRClutter\Held.nif")
@@ -54,24 +61,29 @@ def build():
         (b"ETYP", u32(3)), (b"WNAM", u32(PLUGIN+0x831)),
         (b"DATA", struct.pack("<IIfHB", 0, 100, 0., 0, 0)), (b"DNAM", tuning),
         (b"CRDT", bytes(16)), (b"VNAM", u32(2))], flags=0x400))
-    for tier in range(5):
-        closed = PLUGIN + CLOSED + tier
+    stock = [PLUGIN + tier_id(t, CLOSED, 0x900) for t in range(21)]
+    groups[b"FLST"].append(record(b"FLST", PLUGIN+0x833, [
+        (b"EDID", string("TTWVRTrapStock")), *((b"LNAM", u32(form)) for form in stock)]))
+    for tier, closed in enumerate(stock):
+        suffix = str(tier // 5) if tier % 5 == 0 else f"Pct{tier * 5}"
         groups[b"MISC"].append(record(b"MISC", closed, [
-            (b"EDID", string(f"TTWVRPortableBearTrap{tier}")),
-            (b"OBND", bounds), (b"FULL", string(f"Portable Bear Trap ({tier * 25}%)")),
+            (b"EDID", string(f"TTWVRPortableBearTrap{suffix}")),
+            (b"OBND", bounds), (b"FULL", string(f"Portable Bear Trap ({tier * 5}%)")),
             (b"MODL", portable_model), (b"ICON", string(r"Interface\Icons\PipboyImages\Items\item_junk.dds")),
-            (b"DATA", struct.pack("<If", 5 + 5 * tier, 10.0))]))
+            (b"DATA", struct.pack("<If", 5 + tier, 10.0))]))
         if tier:
-            groups[b"ACTI"].append(record(b"ACTI", PLUGIN + ARMED + tier, [
-                (b"EDID", string(f"TTWVRArmedBearTrap{tier}")), (b"OBND", bounds),
+            groups[b"ACTI"].append(record(b"ACTI", PLUGIN + tier_id(tier, ARMED, 0x920), [
+                (b"EDID", string(f"TTWVRArmedBearTrap{suffix}")), (b"OBND", bounds),
                 (b"FULL", string("Portable Bear Trap (armed)")), (b"MODL", string(MODEL)),
                 (b"SCRI", u32(0x2CBA1))]))
-        if tier < 4:
-            groups[b"RCPE"].append(recipe(0x821 + tier, f"Repair Bear Trap ({tier * 25}% to {(tier + 1) * 25}%)",
-                                           [(closed, 1), (SCRAP, 1)], closed + 1))
+        if tier < 20:
+            restored = min(20, tier + 5)
+            groups[b"RCPE"].append(recipe(tier_id(tier, 0x821, 0x940),
+                f"Repair Bear Trap ({tier * 5}% to {restored * 5}%)",
+                [(closed, 1), (SCRAP, 1)], stock[restored]))
     groups[b"RCPE"].append(recipe(0x820, "Portable Bear Trap", [(SCRAP, 4)], PLUGIN + CLOSED + 4))
     total = sum(len(records) + 1 for records in groups.values())
-    header = record(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.34, total, 0x832)),
+    header = record(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.34, total, 0x954)),
                                  (b"CNAM", string("TTWVR Clutter Distractions")),
                                  (b"MAST", string("FalloutNV.esm")), (b"DATA", bytes(8))])
     for tag, records in groups.items():

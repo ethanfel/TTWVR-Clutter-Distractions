@@ -1,19 +1,30 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 namespace trap {
-// Inventory forms 800-804 remain the saved stock and carry all the weight.
+// The condition-specific inventory forms carry all the weight.
 // The zero-weight WEAP is the persistent hotkey, including while stock is empty.
 constexpr char grantCarrier[]=R"(ref tool
-ref c0
-ref c1
-ref c2
-ref c3
-ref c4
-begin Function {tool c0 c1 c2 c3 c4}
- if eval !(player.GetItemCount tool) && ((player.GetItemCount c4) || (player.GetItemCount c3) || (player.GetItemCount c2) || (player.GetItemCount c1) || (player.GetItemCount c0))
+ref stock
+begin Function {tool stock}
+ if eval !(player.GetItemCount tool) && (player.GetItemCount stock)
   player.AddItem tool 1 1
   SetFunctionValue 1
  endif
+end)";
+
+constexpr char bestStock[]=R"(ref stock
+ref item
+int i
+begin Function {stock}
+ let i := ListGetCount stock
+ while i > 0
+  let i -= 1
+  let item := ListGetNthForm stock i
+  if player.GetItemCount item
+   SetFunctionValue item
+   return
+  endif
+ loop
 end)";
 
 constexpr char placeCarrier[]=R"(ref tool
@@ -26,6 +37,7 @@ int fz
 int count
 float px
 float py
+float pz
 float highZ
 float lowZ
 float hit
@@ -40,21 +52,21 @@ begin Function {tool stock fx fy fz}
  endif
  let px := fx / 16.0
  let py := fy / 16.0
- let highZ := fz / 16.0 + 8
- let lowZ := highZ - 54
+ let pz := fz / 16.0
+ let highZ := pz + 10
+ let lowZ := pz - 8
  let hit := GetP2PRayCastRange px py highZ px py lowZ 6
- if hit <= 0
-  MessageEx "Lower the trap closer to a surface."
-  return
+ if eval hit > 0 && lowZ + hit + 3 > pz
+  let pz := lowZ + hit + 3
  endif
  let cellRef := player.GetParentCell
- let lowZ += hit + 3
- let item := PlaceAtCell stock 1 cellRef px py lowZ
+ let item := PlaceAtCell stock 1 cellRef px py pz
  if eval !item
   return
  endif
  let yaw := player.GetAngle Z + 90
  item.SetAngle Z yaw
+ item.SetPosEx px py pz
  player.RemoveItem stock 1 1
  if eval player.GetItemCount stock != (count - 1)
   item.Disable

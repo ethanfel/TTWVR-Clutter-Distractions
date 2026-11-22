@@ -18,31 +18,47 @@ Arrays* arrays;
 void (*writeLog)(const char*);
 void *scanScript,*swapScript,*positionScript,*poseScript,*spentScript,*skillScript,*noticeScript;
 unsigned prefix, previousTriggers=3;
-void *grantScript,*deployScript,*stockScript,*emptyScript,*anchorScript;
-Ptr carrier,stockForms[5];
+void *grantScript,*deployScript,*stockScript,*emptyScript,*bodyScript,*ownerScript,*floorScript;
+Ptr carrier,neutralFaction,stockList;
 int repairRequired=55;
 float deepHeight;
 bool ready, blockOnWorldEntry;
-void* block;
-struct Seen { Ptr root{}; bool observedArmed=false, openOnLoad=false; double due=0; };
+void* allowActivate;
+struct Seen {
+    Ptr root{};
+    bool observedArmed=false, ownerReady=false, settling=false;
+    double due=0;
+    float lastHeight=1e9f;
+};
 std::map<unsigned,Seen> nearby;
 std::vector<Value> scanBuffer;
 double nextScan, nextMove;
 unsigned selected,previousGrips=3,previousValid=0;
 Gesture gesture;
-Vec originalPos,handOffset;
+Vec handOffset;
+bool holdingBody=false;
 int carryHand=-1;
 
-// Only the four ACTI forms supplied by this addon use Fallout's live trap
+// Only ACTI forms supplied by this addon use Fallout's live trap
 // script. Closed inventory objects can be carried, traded, stacked and repaired.
+unsigned tierForm(int tier,bool armed) {
+    if (tier%5==0) return (armed ? 0x810 : 0x800) + tier/5;
+    return (armed ? 0x920 : 0x900) + tier;
+}
+int stockTier(unsigned key) {
+    if (key>=0x800 && key<=0x804) return 5*int(key-0x800);
+    if (key>0x900 && key<0x914 && (key-0x900)%5) return int(key-0x900);
+    return -1;
+}
 int tierOf(Ptr ref,bool& armed) {
     if (!loose(ref)) return -1;
     unsigned base=id(ptr(ref,0x20));
     if ((base&0xff000000)!=prefix) return -1;
     unsigned key=base&0xffffff;
     armed=key>=0x811 && key<=0x814;
-    if (armed) return int(key-0x810);
-    return key>=0x800 && key<=0x804 ? int(key-0x800) : -1;
+    if (armed) return 5*int(key-0x810);
+    armed=key>0x920 && key<0x934 && (key-0x920)%5;
+    return armed ? int(key-0x920) : stockTier(key);
 }
 constexpr char swapSource[]=R"(ref oldTrap
 ref newItem
@@ -131,7 +147,7 @@ template<typename... Args> Value run(void* script,Args... args) {
     return v;
 }
 void note(const char* action,unsigned ref,int tier) {
-    char line[140]; std::snprintf(line,sizeof line,"bear_trap=%s ref=%08x condition=%d",action,ref,tier*25);
+    char line[140]; std::snprintf(line,sizeof line,"bear_trap=%s ref=%08x condition=%d",action,ref,tier*5);
     writeLog(line);
 }
 bool move(Ptr ref,Vec p,bool settle) {
@@ -140,25 +156,29 @@ bool move(Ptr ref,Vec p,bool settle) {
                int(std::lround(p.z*16)),int(settle));
     return v.type==1 && v.number==1;
 }
-void stop() { selected=0; gesture={}; carryHand=-1; nextMove=0; }
-void settleCarry(Ptr ref) {
-    if (!gesture.carried) return;
-    if (move(ref,field<Vec>(ref,0x30),true)) run(anchorScript,ref,1);
-    else move(ref,originalPos,false);
+void stop() {
+    if (holdingBody) {
+        auto ref=lookup(selected);
+        if (loose(ref) && root(ref)) {
+            run(bodyScript,ref,0);
+            auto& state=nearby[selected];
+            state.settling=true; state.lastHeight=1e9f;
+        }
+    }
+    holdingBody=false; selected=0; gesture={}; carryHand=-1; nextMove=0;
 }
 Ptr swap(Ptr ref,int nextTier,bool armed) {
-    auto form=lookup(prefix+(armed ? 0x810u : 0x800u)+nextTier);
+    auto form=lookup(prefix+tierForm(nextTier,armed));
     if (!form) return nullptr;
     auto result=run(swapScript,ref,form,int(armed),repairRequired);
     if (result.type!=2 || !result.object) return nullptr;
     auto& created=nearby[id(result.object)];
-    if (!armed) run(anchorScript,result.object,1);
-    created.openOnLoad=armed;
     created.observedArmed=armed;
+    if (!armed) run(bodyScript,result.object,2);
     return result.object;
 }
 void scan(Ptr pc,double now) {
-    if (run(grantScript,carrier,stockForms[0],stockForms[1],stockForms[2],stockForms[3],stockForms[4]).number==1)
+    if (run(grantScript,carrier,stockList).number==1)
         writeLog("bear_trap=holster_available");
     std::vector<unsigned> found;
     for (int type:{21,31}) {
@@ -178,7 +198,7 @@ void scan(Ptr pc,double now) {
     for (auto it=nearby.begin();it!=nearby.end();) {
         auto ref=lookup(it->first);
         bool armed=false;
-        if (tierOf(ref,armed)<0 || (!root(ref) && !it->second.openOnLoad) ||
+        if (tierOf(ref,armed)<0 || !root(ref) ||
             !ptr(ref,0x40) || (field<Vec>(ref,0x30)-field<Vec>(pc,0x30)).length()>2200) {
             it=nearby.erase(it);
         } else ++it;
@@ -215,28 +235,31 @@ void useCarrier(Ptr pc,unsigned valid,bool drawn) {
     float left=(palms[0]-grip).length(), right=(palms[1]-grip).length();
     unsigned hand=right<left ? 1 : 0;
     if (!(pressed & (1u<<hand)) || std::min(left,right)>24) return;
-    Value v=run(stockScript,stockForms[4],stockForms[3],stockForms[2],stockForms[1],stockForms[0]);
+    Value v=run(stockScript,stockList);
     if (v.type!=2 || !v.object) { run(emptyScript); return; }
     auto pos=field<Pose>(base,0x68).pos;
     if (!pos.valid() || (pos-field<Vec>(pc,0x30)).length()>260) return;
     auto result=run(deployScript,carrier,v.object,int(std::lround(pos.x*16)),
                     int(std::lround(pos.y*16)),int(std::lround(pos.z*16)));
     if (result.type==2 && result.object) {
-        run(anchorScript,result.object,1);
+        run(bodyScript,result.object,2);
         nearby.try_emplace(id(result.object));
-        note("placed_from_holster",id(result.object),int(id(v.object)&0xff));
+        note("placed_from_holster",id(result.object),stockTier(id(v.object)&0xffffff));
     }
 }
 void interact(Ptr ref,int tier,bool armed,const Vec (&palms)[2],unsigned gripsNow,unsigned pressed,double now) {
     Pose pose=field<Pose>(root(ref),0x68);
-    if (!(pose.scale>0.001f)) { settleCarry(ref); stop(); return; }
+    if (!(pose.scale>0.001f)) { stop(); return; }
     Vec local[]{pose.local(palms[0]),pose.local(palms[1])};
     unsigned key=id(ref);
     Action action=gesture.step(local,gripsNow,pressed,armed,now);
+    if (!armed && !holdingBody && (gesture.paired || gesture.hand>=0)) {
+        run(bodyScript,ref,1);
+        holdingBody=true;
+    }
     if (gesture.hand>=0 && carryHand<0) {
         carryHand=gesture.hand;
-        originalPos=field<Vec>(ref,0x30);
-        handOffset=originalPos-palms[carryHand];
+        handOffset=pose.pos-palms[carryHand];
     }
     switch(action) {
         case Action::none:
@@ -245,18 +268,17 @@ void interact(Ptr ref,int tier,bool armed,const Vec (&palms)[2],unsigned gripsNo
         case Action::carry:
             if (now>=nextMove) { move(ref,palms[carryHand]+handOffset,false); nextMove=now+0.022; }
             return;
-        case Action::cancel: case Action::place: settleCarry(ref); break;
+        case Action::cancel: case Action::place: break;
         case Action::arm: {
-            settleCarry(ref);
             auto skill=run(skillScript);
             if (!tier || skill.type!=1 || skill.number<repairRequired) run(noticeScript,int(tier==0),repairRequired);
-            else if (move(ref,field<Vec>(ref,0x30),true) && swap(ref,tier,true)) note("armed",key,tier);
+            else if (move(ref,pose.pos,true) && swap(ref,tier,true)) note("armed",key,tier);
             break;
         }
         case Action::disarm: {
             // If the native trap fired during the gesture, the spent path owns its wear.
             auto spent=run(spentScript,ref);
-            if (spent.type==1 && spent.number==0 && swap(ref,tier,false)) note("recovered",key,tier);
+            if (spent.type==1 && spent.number<=0 && swap(ref,tier,false)) note("recovered",key,tier);
             break;
         }
     }
@@ -271,58 +293,96 @@ bool initialize(Scripts* scripts,Arrays* arrayApi,void (*logger)(const char*)) {
     Value checked=run(resolve);
     if (checked.type!=2 || !checked.object || field<unsigned char>(checked.object,4)!=31) return false;
     prefix=id(checked.object)&0xff000000;
+    neutralFaction=lookup(prefix+0x832);
+    if (field<unsigned char>(neutralFaction,4)!=8) return false;
     carrier=lookup(prefix+0x830);
     if (field<unsigned char>(carrier,4)!=40) return false;
-    for (int i=0;i<5;++i) {
-        stockForms[i]=lookup(prefix+0x800+i);
-        if (field<unsigned char>(stockForms[i],4)!=31) return false;
-    }
-    // Motion property 8, value 5 is Havok's fixed body. Keep a deliberate
-    // placement stable through cell reloads. A plain inventory drop stays dynamic.
-    anchorScript=api->compile(R"(ref item
-int remember
-begin Function {item remember}
- if remember
+    stockList=lookup(prefix+0x833);
+    if (field<unsigned char>(stockList,4)!=85) return false;
+    // Restore box motion when released or reloaded, including old hovering saves.
+    bodyScript=api->compile(R"(ref item
+int hold
+begin Function {item hold}
+ if hold == 2
   item.AuxVarSetFlt "_TTWVRClutterPlaced" 1
- elseif eval !(item.AuxVarGetFlt "_TTWVRClutterPlaced")
+  return
+ elseif hold == 1
+  item.AuxVarSetFlt "_TTWVRClutterPlaced" 1
+  item.SetCollProp "TTWVRPortableTrap" 8 5
+ elseif eval (item.GetCollProp "TTWVRPortableTrap" 8) == 5
+  item.SetCollProp "TTWVRPortableTrap" 8 3
+  item.SetLinearVelocity "TTWVRPortableTrap" 0 0 0
+ endif
+ SetFunctionValue (item.AuxVarGetFlt "_TTWVRClutterPlaced")
+end)");
+    // The moving box settles under gravity first. Only park it when its visible
+    // base reaches support. Releasing it from the hand starts gravity again.
+    floorScript=api->compile(R"(ref item
+int depth16
+float x
+float y
+float z
+float lo
+float hi
+float hit
+array_var origin
+begin Function {item depth16}
+ let origin := item.GetNifBlockTranslation "TTWVRPortableTrap" 1
+ if eval (ar_Size origin) != 3
+  return
+ endif
+ let x := origin[0]
+ let y := origin[1]
+ let z := origin[2]
+ let hi := z + 9
+ let lo := z - depth16 / 16.0 - 8
+ item.ToggleObjectCollision 0
+ let hit := GetP2PRayCastRange x y hi x y lo 6
+ item.ToggleObjectCollision 1
+ if eval hit <= 0 || abs (z - lo - hit - depth16 / 16.0) > 3
   return
  endif
  item.SetCollProp "TTWVRPortableTrap" 8 5
+ SetFunctionValue 1
+end)");
+    ownerScript=api->compile(R"(ref item
+ref faction
+begin Function {item faction}
+ if eval item.GetOwner != faction
+  item.SetOwnership faction
+ endif
+ SetFunctionValue (item.GetOwner == faction)
 end)");
     grantScript=api->compile(grantCarrier);
     deployScript=api->compile(placeCarrier);
-    stockScript=api->compile(R"(ref c4
-ref c3
-ref c2
-ref c1
-ref c0
-begin Function {c4 c3 c2 c1 c0}
- if player.GetItemCount c4
-  SetFunctionValue c4
- elseif player.GetItemCount c3
-  SetFunctionValue c3
- elseif player.GetItemCount c2
-  SetFunctionValue c2
- elseif player.GetItemCount c1
-  SetFunctionValue c1
- elseif player.GetItemCount c0
-  SetFunctionValue c0
- endif
-end)");
+    stockScript=api->compile(bestStock);
     emptyScript=api->compile("begin Function {}\n MessageEx \"No portable bear traps in inventory.\"\nend");
-    if (!anchorScript || !grantScript || !deployScript || !stockScript || !emptyScript) return false;
+    if (!floorScript || !bodyScript || !ownerScript || !grantScript || !deployScript || !stockScript || !emptyScript) return false;
     scanScript=api->compile("int kind\nbegin Function {kind}\n SetFunctionValue (player.GetRefs kind 1 1 2048)\nend");
     swapScript=api->compile(swapSource);
     positionScript=api->compile(positionSource);
     poseScript=api->compile("ref item\nint opened\nbegin Function {item opened}\n if opened\n  item.PlayGroup Backward 1\n else\n  item.PlayAnimSequence \"Forward\"\n endif\nend");
-    spentScript=api->compile("ref item\nbegin Function {item}\n SetFunctionValue (item.GetVariable \"disarmed\")\nend");
+    spentScript=api->compile(R"(ref item
+begin Function {item}
+ if eval item.GetVariable "disarmed"
+  if eval (item.GetVariable "button") == 1
+   SetFunctionValue 1
+  else
+   SetFunctionValue 2
+  endif
+ elseif eval item.GetVariable "justActivated"
+  SetFunctionValue -1
+ else
+  SetFunctionValue 0
+ endif
+end)");
     skillScript=api->compile("begin Function {}\n SetFunctionValue (player.GetAV Repair)\nend");
     noticeScript=api->compile("int broken\nint minimumRepair\nbegin Function {broken minimumRepair}\n if broken\n  MessageEx \"Repair this bear trap at a workbench.\"\n else\n  MessageEx \"Repair %.0f required to arm a bear trap.\" minimumRepair\n endif\nend");
-    block=api->compile("ref item\nbegin Function {item}\n SetInteractionDisabled 1 item\n SetFunctionValue (GetInteractionDisabled item)\nend");
-    if (!scanScript || !swapScript || !positionScript || !poseScript || !spentScript || !skillScript || !noticeScript || !block) return false;
+    allowActivate=api->compile("ref item\nbegin Function {item}\n SetInteractionDisabled 0 item\n SetFunctionValue (GetInteractionDisabled item)\nend");
+    if (!scanScript || !swapScript || !positionScript || !poseScript || !spentScript || !skillScript || !noticeScript || !allowActivate) return false;
     for (unsigned tier=1;tier<=4;++tier) {
         Ptr form=lookup(prefix+0x810+tier);
-        if (field<unsigned char>(form,4)!=21 || run(block,form).number!=1) return false;
+        if (field<unsigned char>(form,4)!=21 || run(allowActivate,form).number!=0) return false;
     }
     constexpr char ini[]=".\\Data\\NVSE\\Plugins\\TTWVRClutterDistractions.ini";
     repairRequired=std::clamp(int(GetPrivateProfileIntA("BearTrap","MinimumRepair",55,ini)),0,100);
@@ -338,10 +398,6 @@ end)");
 }
 void suspend() {
     crouch::suspend();
-    if (selected) {
-        Ptr ref=lookup(selected); bool armed=false;
-        if (tierOf(ref,armed)>=0 && root(ref)) settleCarry(ref);
-    }
     stop(); previousGrips=3; previousValid=0; previousTriggers=3;
 }
 void reset() {
@@ -354,7 +410,7 @@ void frame(Ptr pc,double now,bool drawn) {
     crouch::update(rightStick(),deepHeight,now,writeLog);
     if (blockOnWorldEntry) {
         for (unsigned tier=1; tier<=4; ++tier)
-            if (auto form=lookup(prefix+0x810+tier)) run(block,form);
+            if (auto form=lookup(prefix+0x810+tier)) run(allowActivate,form);
         blockOnWorldEntry=false;
     }
     if (now>=nextScan) scan(pc,now);
@@ -372,18 +428,45 @@ void frame(Ptr pc,double now,bool drawn) {
         if (!node) continue;
         if (state.root!=node) {
             state.root=node;
-            if (armed && state.openOnLoad) run(poseScript,ref,1);
-            if (!armed) run(anchorScript,ref,0);
-            state.openOnLoad=false;
+            if (!armed) {
+                state.settling=run(bodyScript,ref,0).number==1;
+                state.lastHeight=1e9f;
+            }
+            else if (run(spentScript,ref).number==0) run(poseScript,ref,1);
+        }
+        if (!armed && state.settling && selected!=key && now>=state.due) {
+            state.due=now+0.12;
+            Pose pose=field<Pose>(node,0x68);
+            float z=pose.pos.z;
+            // Project the rigid box half-extents from Portable.nif onto world Z.
+            // A folded trap can land flat, on its side, or against a slope.
+            float depth=pose.scale*(48.3f*std::abs(pose.rot[2][0])+7.7f*std::abs(pose.rot[2][1])+
+                                    2.8f*std::abs(pose.rot[2][2]));
+            if (std::abs(z-state.lastHeight)<0.5f && depth>0 && depth<100 &&
+                run(floorScript,ref,int(std::lround(depth*16))).number==1) {
+                state.settling=false;
+                note("landed",key,tier);
+            }
+            state.lastHeight=z;
         }
         if (armed && now>=state.due) {
-            state.due=now+0.25;
+            state.due=now+0.16;
+            // TTW exempts the owner on trigger entry. Protect the setter while
+            // their feet overlap the jaws, then arm for everyone, including them.
+            Vec feet=field<Pose>(node,0x68).local(field<Vec>(pc,0x30));
+            if (!state.ownerReady && (std::abs(feet.x)>48 || std::abs(feet.y)>48 ||
+                                      feet.z>24 || feet.z< -120)) {
+                state.ownerReady=run(ownerScript,ref,neutralFaction).number==1;
+                if (state.ownerReady) note("step_ready",key,tier);
+            }
             auto spent=run(spentScript,ref);
-            if (spent.type==1 && spent.number!=0) {
+            if (spent.type==1 && spent.number>0) {
                 auto pos=field<Vec>(ref,0x30);
-                if (Ptr closed=swap(ref,tier-1,false)) {
-                    if (state.observedArmed) world::reportAt(pc,closed,pos,70);
-                    note("sprung",key,tier-1);
+                bool manual=spent.number==1;
+                int nextTier=manual ? tier : std::max(0,tier-2);
+                if (Ptr closed=swap(ref,nextTier,false)) {
+                    if (!manual && state.observedArmed) world::reportAt(pc,closed,pos,70);
+                    note(manual ? "recovered" : "sprung",key,nextTier);
                     if (selected==key) stop();
                 }
                 continue;
@@ -396,18 +479,14 @@ void frame(Ptr pc,double now,bool drawn) {
     if (!canReach && !selected) return;
     Vec palms[2]{};
     if (!valid || (!down && !selected) || !hands(pc,palms)) {
-        if (selected) {
-            Ptr ref=lookup(selected); bool armed=false;
-            if (tierOf(ref,armed)>=0) settleCarry(ref);
-            stop();
-        }
+        if (selected) stop();
         return;
     }
     if (selected) {
         Ptr ref=lookup(selected); bool armed=false; int tier=tierOf(ref,armed);
         if (tier<0 || !root(ref)) { stop(); return; }
         if ((gesture.paired && valid!=3) || (carryHand>=0 && !(valid&(1u<<carryHand)))) {
-            settleCarry(ref); stop(); return;
+            stop(); return;
         }
         interact(ref,tier,armed,palms,down,pressed,now);
         return;

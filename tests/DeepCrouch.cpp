@@ -1,4 +1,5 @@
 #include "../src/DeepCrouch.h"
+#include "../src/Kneeling.h"
 #include <cassert>
 using namespace crouch;
 int main() {
@@ -47,4 +48,17 @@ int main() {
     assert(step(Stick::held,true,1.30f));
     assert(step(Stick::invalid,true,.55f) && next==1.30f);
     assert(!step(Stick::held,true,1.30f)); // require a fresh press after tracking loss
+    // The lower stance keeps the sole height and both limb lengths when the
+    // stock solve extends the ankles in front of the player.
+    Vec hip{2,0,7},knee{4,25,14},foot{0,48,4},forward{0,1,0},kn,an;
+    assert(kneel(hip,knee,foot,forward,1.f,kn,an));
+    assert(an.y>hip.y && an.y<knee.y && an.z==foot.z && an.x==foot.x);
+    auto close=[](float a,float b) { return std::abs(a-b)<.001f; };
+    assert(close((kn-hip).length(),(knee-hip).length()));
+    assert(close((an-kn).length(),(foot-knee).length()));
+    auto r=swing(knee-hip,kn-hip);
+    assert((r.apply(knee-hip)-(kn-hip)).length()<.001f);
+    assert(!kneel(hip,hip,foot,forward,1,kn,an));
+    assert(!kneel(hip,knee,{NAN,0,0},forward,1,kn,an));
+    assert(!kneel(hip,knee,foot,forward,0,kn,an));
 }

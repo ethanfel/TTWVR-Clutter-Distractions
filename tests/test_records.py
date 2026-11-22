@@ -34,9 +34,10 @@ def records(lo, end):
 all_records = list(records(0, len(raw)))
 header = dict(all_records[0][2])
 assert header[b"MAST"] == b"FalloutNV.esm\0"
-assert struct.unpack("<fII", header[b"HEDR"])[1:] == (len(all_records) - 1, 0x832)
+assert struct.unpack("<fII", header[b"HEDR"])[1:] == (len(all_records) - 1, 0x954)
 forms = {i: (t, f) for t, i, f in all_records if i}
-assert len(forms) == 16
+assert len(forms) == 66
+assert forms[0x01000832][0] == b"FACT"
 for tier in range(5):
     item, armed = 0x01000800+tier, 0x01000810+tier
     tag, data = forms[item]
@@ -58,4 +59,11 @@ tag, data = forms[0x01000830]
 assert tag == b"WEAP" and dict(data)[b"WNAM"] == struct.pack("<I", 0x01000831)
 assert struct.unpack("<IIfHB", dict(data)[b"DATA"])[2:] == (0., 0, 0)
 assert dict(data)[b"MODL"] == dict(forms[0x01000831][1])[b"MODL"] == b"TTWVRClutter\\Held.nif\0"
-print("Trap records, recipes, holster weapon and mesh links passed")
+stock = [int.from_bytes(v, "little") for t, v in forms[0x01000833][1] if t == b"LNAM"]
+assert len(stock) == len(set(stock)) == 21
+for tier, item in enumerate(stock):
+    assert dict(forms[item][1])[b"FULL"] == f"Portable Bear Trap ({tier * 5}%)".encode() + b"\0"
+    if tier % 5:
+        assert forms[0x01000920 + tier][0] == b"ACTI"
+        assert dict(forms[0x01000940 + tier][1])[b"RCOD"] == struct.pack("<I", stock[min(20, tier + 5)])
+print("Trap records, legacy IDs, condition tiers, recipes and holster stock passed")

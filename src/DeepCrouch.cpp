@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "DeepCrouch.h"
+#include "Kneeling.h"
 #include <cstdio>
 #include <atomic>
 #include <algorithm>
@@ -9,6 +10,7 @@ namespace crouch {
 namespace {
 const unsigned char* manual;
 float* target;
+const float* smoothed;
 Stance stance;
 std::atomic<Level> level{Level::off};
 std::atomic<bool> rise{};
@@ -34,6 +36,8 @@ void bind(unsigned char* host) {
         std::memcmp(host+0x7e4b1,"\xf3\x0f\x11\x86\x48\x0b\x00\x00",8)) return;
     manual=flag;
     target=reinterpret_cast<float*>(goal);
+    smoothed=reinterpret_cast<const float*>(host+0x10e70ac);
+    bindLegPose(host);
 }
 bool available() { return target!=nullptr; }
 float filter(Stick stick,float y,std::uint32_t now,Control& control) {
@@ -66,10 +70,13 @@ void update(Stick stick,float height,double now,void (*log)(const char*)) {
             log(line);
         }
     }
+    float fraction=stance.active ? std::clamp((stance.original-*smoothed)/.45f,0.f,1.f) : 0.f;
+    setKneelBlend(fraction*fraction*(3.f-2.f*fraction));
     level.store(!*manual ? Level::standing : stance.active && !rising ? Level::deep : Level::regular,
                 std::memory_order_release);
 }
 void suspend() {
+    setKneelBlend(0);
     level.store(Level::off,std::memory_order_release);
     rise.store(false,std::memory_order_release);
     rising=false; waitRelease=false; previous=0;
