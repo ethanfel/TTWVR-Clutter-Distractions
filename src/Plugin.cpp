@@ -107,7 +107,7 @@ void emit(const Candidate& e,Ptr pc) {
 
 void frame() {
     Ptr pc=world::player(), nextCell=ptr(pc,0x40);
-    if (!nextCell) { clear(); return; }
+    if (!nextCell) { if (playing) trap::reset(); clear(); return; }
     Value mode;
     if (!scripts->call(getMode,nullptr,nullptr,&mode,0) || mode.type!=1 || mode.number<1) {
         if (playing) { trap::suspend(); clear(); }
@@ -173,14 +173,14 @@ void __cdecl message(Message* msg) {
         initialized=true; mainThread=GetCurrentThreadId();
         ready=initialize();
         if (ready && !trap::initialize(scripts,arrays,log)) log("bear_traps inactive: check ESP or script compilation");
-        log(ready ? "ready version=0.2.0" : "inactive: check xNVSE and JIP LN script compilation");
+        log(ready ? "ready version=0.2.1" : "inactive: check xNVSE and JIP LN script compilation");
     }
     if (ready) frame();
 }
 }
 extern "C" __declspec(dllexport) bool NVSEPlugin_Query(const NVSE* n,Info* info) {
     if (!n || !info) return false;
-    *info={1,"TTWVR Clutter Distractions",2};
+    *info={1,"TTWVR Clutter Distractions",3};
     return !n->isEditor && n->runtime==0x040020d0 && n->version>=6;
 }
 extern "C" __declspec(dllexport) bool NVSEPlugin_Load(const NVSE* n) {

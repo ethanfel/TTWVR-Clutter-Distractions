@@ -10,10 +10,11 @@
 namespace trap {
 namespace {
 std::atomic<DWORD> sample{};
-constexpr DWORD clockMask=0x0fffffffu;
+constexpr DWORD clockMask=0x03ffffffu;
 using Poll=bool (__thiscall *)(void*, unsigned char*);
 template<int Backend> struct Input {
     static inline Poll next;
+    static inline crouch::Hold hold;
     static bool __fastcall poll(void* self, void*, unsigned char* frame) {
         bool ok=next(self,frame);
         unsigned bits=0;
@@ -24,7 +25,11 @@ template<int Backend> struct Input {
                 bits |= (4u | unsigned(squeeze>=0.55f))<<h;
             }
         }
-        sample.store(((GetTickCount() & clockMask)<<4)|bits,std::memory_order_relaxed);
+        float axes[2]{};
+        if (bits&8u) std::memcpy(axes,frame+0x108,sizeof axes);
+        DWORD now=GetTickCount();
+        auto stick=hold.sample((bits&8u)!=0,axes[0],axes[1],now);
+        sample.store(((now & clockMask)<<6)|(unsigned(stick)<<4)|bits,std::memory_order_relaxed);
         return ok;
     }
     static bool attach(unsigned char* host, unsigned rva) {
@@ -53,11 +58,18 @@ unsigned installInput() {
         std::memcmp(host+0x6e986d,xr,sizeof xr) || std::memcmp(host+0x6c8954,vr,sizeof vr)) return 0;
     unsigned backends=Input<0>::attach(host,0xaf3568)?1u:0u;
     if (Input<1>::attach(host,0xaf36d0)) backends|=2;
+    if (backends) crouch::bind(host);
     return backends;
 }
-int grips() {
+static DWORD latest() {
     DWORD value=sample.load(std::memory_order_relaxed);
-    if (!(value&12) || ((GetTickCount()-(value>>4))&clockMask)>250) return -1;
-    return int(value&15);
+    return ((GetTickCount()-(value>>6))&clockMask)<=250 ? value : 0;
+}
+int grips() {
+    DWORD value=latest();
+    return value&12 ? int(value&15) : -1;
+}
+crouch::Stick rightStick() {
+    return static_cast<crouch::Stick>((latest()>>4)&3);
 }
 }

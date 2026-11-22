@@ -18,6 +18,7 @@ void (*writeLog)(const char*);
 void *scanScript,*swapScript,*positionScript,*poseScript,*spentScript,*skillScript,*noticeScript;
 unsigned prefix;
 int repairRequired=55;
+float deepHeight;
 bool ready, blockOnWorldEntry;
 void* block;
 struct Seen { Ptr root{}; bool observedArmed=false, openOnLoad=false; double due=0; };
@@ -245,15 +246,20 @@ bool initialize(Scripts* scripts,Arrays* arrayApi,void (*logger)(const char*)) {
         Ptr form=lookup(prefix+0x810+tier);
         if (field<unsigned char>(form,4)!=21 || run(block,form).number!=1) return false;
     }
-    repairRequired=std::clamp(int(GetPrivateProfileIntA("BearTrap","MinimumRepair",55,
-        ".\\Data\\NVSE\\Plugins\\TTWVRClutterDistractions.ini")),0,100);
+    constexpr char ini[]=".\\Data\\NVSE\\Plugins\\TTWVRClutterDistractions.ini";
+    repairRequired=std::clamp(int(GetPrivateProfileIntA("BearTrap","MinimumRepair",55,ini)),0,100);
+    int cm=int(GetPrivateProfileIntA("DeepCrouch","EyeHeightCm",55,ini));
+    deepHeight=cm>0 ? std::clamp(cm,30,120)*0.01f : 0.f;
     ready=true;
     unsigned inputs=installInput();
     char line[100]; std::snprintf(line,sizeof line,"bear_traps ready forms=%02x minimum_repair=%d controller_openxr=%u controller_openvr=%u",
                                   prefix>>24,repairRequired,inputs&1,inputs>>1); logger(line);
+    std::snprintf(line,sizeof line,"deep_crouch available=%d eye_height_cm=%.0f",crouch::available(),deepHeight*100);
+    logger(line);
     return true;
 }
 void suspend() {
+    crouch::suspend();
     if (selected) {
         Ptr ref=lookup(selected); bool armed=false;
         if (tierOf(ref,armed)>=0 && root(ref)) settleCarry(ref);
@@ -261,11 +267,13 @@ void suspend() {
     stop(); previousGrips=3; previousValid=0;
 }
 void reset() {
+    crouch::suspend();
     blockOnWorldEntry=true;
     stop(); nearby.clear(); nextScan=0; previousGrips=3; previousValid=0;
 }
 void frame(Ptr pc,double now) {
     if (!ready) return;
+    crouch::update(rightStick(),deepHeight,writeLog);
     if (blockOnWorldEntry) {
         for (unsigned tier=1; tier<=4; ++tier)
             if (auto form=lookup(prefix+0x810+tier)) run(block,form);
