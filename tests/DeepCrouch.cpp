@@ -46,8 +46,21 @@ int main() {
     assert(step(Stick::held,true,1.15f));
     assert(!step(Stick::released,false,1.30f) && !s.active); // host took ownership
     assert(step(Stick::held,true,1.30f));
-    assert(step(Stick::invalid,true,.55f) && next==1.30f);
-    assert(!step(Stick::held,true,1.30f)); // require a fresh press after tracking loss
+    assert(!step(Stick::invalid,true,.55f) && s.active); // tracking gaps preserve height
+    assert(!step(Stick::held,true,.55f) && s.active);
+    assert(step(Stick::invalid,false,.55f) && next==1.30f && !s.active);
+    assert(!step(Stick::held,true,1.30f));
+    assert(poll(Level::deep,Stick::invalid,0,7000)==0);
+    assert(poll(Level::deep,Stick::down,-1,7010)==0 && !rise);
+    assert(poll(Level::deep,Stick::released,0,7030)==0);
+    assert(poll(Level::deep,Stick::down,-1,7050)==0 && rise);
+    assert(poll(Level::regular,Stick::released,0,7070)==0);
+    assert(poll(Level::regular,Stick::down,-1,7100)==0);
+    assert(poll(Level::regular,Stick::released,0,7150)==-1);
+    assert(poll(Level::regular,Stick::released,0,7340)==0);
+    assert(poll(Level::regular,Stick::released,0,7480)==-1);
+    assert(poll(Level::standing,Stick::released,0,7490)==0);
+    assert(poll(Level::regular,Stick::released,0,7500)==0);
     // The lower stance keeps the sole height and both limb lengths when the
     // stock solve extends the ankles in front of the player.
     Vec hip{2,0,7},knee{4,25,14},foot{0,48,4},forward{0,1,0},kn,an;

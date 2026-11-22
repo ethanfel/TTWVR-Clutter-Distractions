@@ -19,7 +19,8 @@ void (*writeLog)(const char*);
 void *scanScript,*swapScript,*positionScript,*poseScript,*spentScript,*skillScript,*noticeScript;
 unsigned prefix, previousTriggers=3;
 void *grantScript,*deployScript,*stockScript,*emptyScript,*bodyScript,*ownerScript,*floorScript;
-Ptr carrier,neutralFaction,stockList;
+void *caughtActorScript,*injuryScript;
+Ptr carrier,neutralFaction,stockList,catchSpell;
 int repairRequired=55;
 float deepHeight;
 bool ready, blockOnWorldEntry;
@@ -27,7 +28,7 @@ void* allowActivate;
 struct Seen {
     Ptr root{};
     bool observedArmed=false, ownerReady=false, settling=false;
-    double due=0;
+    double due=0, recoverAt=0;
     float lastHeight=1e9f;
 };
 std::map<unsigned,Seen> nearby;
@@ -173,9 +174,29 @@ Ptr swap(Ptr ref,int nextTier,bool armed) {
     auto result=run(swapScript,ref,form,int(armed),repairRequired);
     if (result.type!=2 || !result.object) return nullptr;
     auto& created=nearby[id(result.object)];
+    created={};
     created.observedArmed=armed;
     if (!armed) run(bodyScript,result.object,2);
     return result.object;
+}
+void catchActor(Ptr ref,bool right) {
+    const auto victim=run(caughtActorScript,ref);
+    if (victim.type!=2 || !victim.object) return;
+    const auto type=field<unsigned char>(victim.object,4);
+    if (type!=0x3b && type!=0x3c) return;
+    // The seated and standing player camera stays under TTWVR control.
+    Ptr idle=type==0x3b && victim.object!=player() ? lookup(right ? 0x14cc40 : 0x14cc3d) : nullptr;
+    auto result=run(injuryScript,victim.object,int(right),catchSpell,idle);
+    if (result.type==1 && result.number==0 && victim.object!=player() && root(victim.object)) {
+        // FalloutNV 1.4.0.525 Actor::QueueReplacementLocomotions(force).
+        // Recompute the native gait using this actor's skeleton and cripple flags.
+        using RefreshGait=void (__thiscall *)(Ptr,bool);
+        reinterpret_cast<RefreshGait>(0x8b78c0)(victim.object,true);
+    }
+    char line[160];
+    std::snprintf(line,sizeof line,"bear_trap=caught ref=%08x actor=%08x leg=%s limb_after=%.1f",
+                  id(ref),id(victim.object),right?"right":"left",result.type==1?result.number:-1.);
+    writeLog(line);
 }
 void scan(Ptr pc,double now) {
     if (run(grantScript,carrier,stockList).number==1)
@@ -295,6 +316,8 @@ bool initialize(Scripts* scripts,Arrays* arrayApi,void (*logger)(const char*)) {
     prefix=id(checked.object)&0xff000000;
     neutralFaction=lookup(prefix+0x832);
     if (field<unsigned char>(neutralFaction,4)!=8) return false;
+    catchSpell=lookup(prefix+0x835);
+    if (field<unsigned char>(catchSpell,4)!=0x14) return false;
     carrier=lookup(prefix+0x830);
     if (field<unsigned char>(carrier,4)!=40) return false;
     stockList=lookup(prefix+0x833);
@@ -367,6 +390,12 @@ begin Function {item}
  if eval item.GetVariable "disarmed"
   if eval (item.GetVariable "button") == 1
    SetFunctionValue 1
+  elseif eval (item.GetVariable "legToDisable") > 0
+   if eval (item.GetVariable "legToDisable") == 2
+    SetFunctionValue 4
+   else
+    SetFunctionValue 3
+   endif
   else
    SetFunctionValue 2
   endif
@@ -376,6 +405,38 @@ begin Function {item}
   SetFunctionValue 0
  endif
 end)");
+    caughtActorScript=api->compile(R"(ref item
+begin Function {item}
+ SetFunctionValue (item.GetRefVariable "trapVictim")
+end)");
+    injuryScript=api->compile(R"(ref victim
+int rightLeg
+ref spell
+ref idleForm
+float condition
+begin Function {victim rightLeg spell idleForm}
+ if victim.GetDead
+  SetFunctionValue -1
+  return
+ endif
+ if rightLeg
+  if eval (victim.GetAV RightMobilityCondition) > 0
+   victim.CrippleLimb 5
+  endif
+  let condition := victim.GetAV RightMobilityCondition
+ else
+  if eval (victim.GetAV LeftMobilityCondition) > 0
+   victim.CrippleLimb 4
+  endif
+  let condition := victim.GetAV LeftMobilityCondition
+ endif
+ victim.CastImmediate spell
+ if eval victim != player && idleForm
+  victim.PlayIdleEx idleForm
+ endif
+ SetFunctionValue condition
+end)");
+    if (!caughtActorScript || !injuryScript) return false;
     skillScript=api->compile("begin Function {}\n SetFunctionValue (player.GetAV Repair)\nend");
     noticeScript=api->compile("int broken\nint minimumRepair\nbegin Function {broken minimumRepair}\n if broken\n  MessageEx \"Repair this bear trap at a workbench.\"\n else\n  MessageEx \"Repair %.0f required to arm a bear trap.\" minimumRepair\n endif\nend");
     allowActivate=api->compile("ref item\nbegin Function {item}\n SetInteractionDisabled 0 item\n SetFunctionValue (GetInteractionDisabled item)\nend");
@@ -396,9 +457,12 @@ end)");
     logger(line);
     return true;
 }
+void interruptHands() {
+    stop(); previousGrips=3; previousValid=0; previousTriggers=3;
+}
 void suspend() {
     crouch::suspend();
-    stop(); previousGrips=3; previousValid=0; previousTriggers=3;
+    interruptHands();
 }
 void reset() {
     crouch::suspend();
@@ -463,15 +527,22 @@ void frame(Ptr pc,double now,bool drawn) {
             if (spent.type==1 && spent.number>0) {
                 auto pos=field<Vec>(ref,0x30);
                 bool manual=spent.number==1;
+                if (!manual && state.observedArmed && !state.recoverAt) {
+                    // Keep the native activator through the jaw animation, sound,
+                    // and brief catch. A spent trap first seen on load only folds.
+                    state.recoverAt=now+1.;
+                    if (spent.number>=3) catchActor(ref,spent.number==4);
+                    world::reportAt(pc,ref,pos,70);
+                }
+                if (now<state.recoverAt) continue;
                 int nextTier=manual ? tier : std::max(0,tier-2);
-                if (Ptr closed=swap(ref,nextTier,false)) {
-                    if (!manual && state.observedArmed) world::reportAt(pc,closed,pos,70);
+                if (swap(ref,nextTier,false)) {
                     note(manual ? "recovered" : "sprung",key,nextTier);
                     if (selected==key) stop();
                 }
                 continue;
             }
-            state.observedArmed=spent.type==1;
+            if (spent.type==1) { state.observedArmed=true; state.recoverAt=0; }
         }
         auto delta=field<Vec>(pc,0x30)-field<Vec>(ref,0x30);
         if (delta.length()<210) canReach=true;

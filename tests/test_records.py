@@ -36,7 +36,15 @@ header = dict(all_records[0][2])
 assert header[b"MAST"] == b"FalloutNV.esm\0"
 assert struct.unpack("<fII", header[b"HEDR"])[1:] == (len(all_records) - 1, 0x954)
 forms = {i: (t, f) for t, i, f in all_records if i}
-assert len(forms) == 66
+assert len(forms) == 68
+tag, fx = forms[0x01000834]
+effect = dict(fx)[b"DATA"]
+assert tag == b"MGEF" and len(effect) == 72
+assert struct.unpack_from("<I", effect)[0] == 0x16 and struct.unpack_from("<I", effect,68)[0] == 21
+tag, spell = forms[0x01000835]
+assert tag == b"SPEL" and dict(spell)[b"EFID"] == struct.pack("<I",0x01000834)
+assert len(dict(spell)[b"SPIT"]) == 16
+assert struct.unpack("<5I",dict(spell)[b"EFIT"]) == (100,0,1,0,21)
 assert forms[0x01000832][0] == b"FACT"
 for tier in range(5):
     item, armed = 0x01000800+tier, 0x01000810+tier

@@ -29,11 +29,12 @@ template<int Backend> struct Input {
             }
         }
         float axes[2]{};
-        if (bits&8u) std::memcpy(axes,frame+0x108,sizeof axes);
+        const bool hasActions=ok && frame && frame[0x12c];
+        if (hasActions) std::memcpy(axes,frame+0x108,sizeof axes);
         DWORD now=GetTickCount();
-        auto stick=hold.sample((bits&8u)!=0,axes[0],axes[1],now);
+        auto stick=hold.sample(hasActions,axes[0],axes[1],now);
         float filtered=crouch::filter(stick,axes[1],now,control);
-        if ((bits&8u) && filtered!=axes[1]) std::memcpy(frame+0x10c,&filtered,sizeof filtered);
+        if (hasActions && filtered!=axes[1]) std::memcpy(frame+0x10c,&filtered,sizeof filtered);
         sample.store(((now & clockMask)<<8)|(unsigned(stick)<<4)|bits,std::memory_order_relaxed);
         return ok;
     }

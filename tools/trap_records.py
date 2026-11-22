@@ -38,10 +38,25 @@ def tier_id(tier, legacy, extended):
 
 
 def build():
-    groups = {b"FACT": [], b"ACTI": [], b"MISC": [], b"STAT": [], b"WEAP": [], b"FLST": [], b"RCPE": []}
+    groups = {b"FACT": [], b"MGEF": [], b"SPEL": [], b"ACTI": [], b"MISC": [], b"STAT": [], b"WEAP": [], b"FLST": [], b"RCPE": []}
     # No actors belong to this faction. TTW's native trigger skips the owner.
     groups[b"FACT"].append(record(b"FACT", PLUGIN+0x832, [
         (b"EDID", string("TTWVRTrapNeutralOwner")), (b"DATA", u32(1))]))
+    # A timed, recoverable SpeedMult modifier. The engine removes it on expiry,
+    # including after save/load. It never disables AI or controller tracking.
+    speed_mult = 21
+    effect = bytearray(72)
+    struct.pack_into("<I", effect, 0, 0x16)  # recover + detrimental + self
+    struct.pack_into("<ii", effect, 12, -1, -1)
+    struct.pack_into("<f", effect, 28, 1.)
+    struct.pack_into("<I", effect, 68, speed_mult)
+    groups[b"MGEF"].append(record(b"MGEF", PLUGIN+0x834, [
+        (b"EDID", string("TTWVRTrapCaughtSpeed")), (b"FULL", string("Caught in bear trap")),
+        (b"DATA", bytes(effect))]))
+    groups[b"SPEL"].append(record(b"SPEL", PLUGIN+0x835, [
+        (b"EDID", string("TTWVRTrapBriefCatch")), (b"FULL", string("Caught in bear trap")),
+        (b"SPIT", bytes(16)), (b"EFID", u32(PLUGIN+0x834)),
+        (b"EFIT", struct.pack("<5I", 100, 0, 1, 0, speed_mult))]))
     bounds = struct.pack("<6h", -49, -32, -2, 49, 32, 16)
     # A stable, weightless hotkey represents the player's stock across condition tiers.
     held_model = string(r"TTWVRClutter\Held.nif")

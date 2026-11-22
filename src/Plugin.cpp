@@ -115,7 +115,10 @@ void frame() {
     }
     double now=seconds();
     if (nextCell!=cell || now-beforeFrame>0.30) {
-        if (playing) trap::suspend();
+        if (playing) {
+            if (nextCell!=cell) trap::suspend();
+            else trap::interruptHands();
+        }
         clear(); cell=nextCell;
     }
     float dt=beforeFrame ? float(now-beforeFrame) : 0.f;
@@ -173,14 +176,14 @@ void __cdecl message(Message* msg) {
         initialized=true; mainThread=GetCurrentThreadId();
         ready=initialize();
         if (ready && !trap::initialize(scripts,arrays,log)) log("bear_traps inactive: check ESP or script compilation");
-        log(ready ? "ready version=0.2.3" : "inactive: check xNVSE and JIP LN script compilation");
+        log(ready ? "ready version=0.2.4" : "inactive: check xNVSE and JIP LN script compilation");
     }
     if (ready) frame();
 }
 }
 extern "C" __declspec(dllexport) bool NVSEPlugin_Query(const NVSE* n,Info* info) {
     if (!n || !info) return false;
-    *info={1,"TTWVR Clutter Distractions",5};
+    *info={1,"TTWVR Clutter Distractions",6};
     return !n->isEditor && n->runtime==0x040020d0 && n->version>=6;
 }
 extern "C" __declspec(dllexport) bool NVSEPlugin_Load(const NVSE* n) {

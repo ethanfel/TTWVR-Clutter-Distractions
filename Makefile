@@ -24,4 +24,4 @@ test: build/crouch-test build/impacts build/world-test build/trap-test build/$(N
 	./build/trap-test
 	python3 tests/test_records.py build/$(NAME).esp
 package: all test config/$(NAME).ini assets/meshes/TTWVRClutter/Portable.nif assets/meshes/TTWVRClutter/Held.nif
-	python3 tools/package.py build/$(NAME)-0.2.3.zip
+	python3 tools/package.py build/$(NAME)-0.2.4.zip

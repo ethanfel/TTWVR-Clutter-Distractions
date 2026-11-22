@@ -53,7 +53,7 @@ void update(Stick stick,float height,double now,void (*log)(const char*)) {
     bool request=rise.exchange(false,std::memory_order_acq_rel);
     if (request && stance.active && *manual) { rising=true; waitRelease=true; }
     if (stick==Stick::released) waitRelease=false;
-    if (rising && stance.active && *manual && *target==stance.applied && stick!=Stick::invalid) {
+    if (rising && stance.active && *manual && *target==stance.applied) {
         stance.applied=std::min(stance.original,stance.applied+dt*2.f);
         *target=stance.applied;
         if (*target==stance.original) {
@@ -66,7 +66,7 @@ void update(Stick stick,float height,double now,void (*log)(const char*)) {
         if (stance.update(waitRelease ? Stick::down : stick,*manual!=0,*target,height,next)) {
             *target=next;
             char line[96];
-            std::snprintf(line,sizeof line,"deep_crouch=%s target_cm=%.0f",stance.active?"entered":"left",next*100);
+            std::snprintf(line,sizeof line,"deep_crouch=%s target_cm=%.0f",stance.active?"entered":"host_stood",next*100);
             log(line);
         }
     }
