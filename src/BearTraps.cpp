@@ -1,0 +1,346 @@
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+// SPDX-License-Identifier: GPL-3.0-only
+#include "BearTraps.h"
+#include "TrapGesture.h"
+#include "TrapInput.h"
+#include "World.h"
+#include <cstdio>
+#include <map>
+
+namespace trap {
+namespace {
+using namespace world;
+Scripts* api;
+Arrays* arrays;
+void (*writeLog)(const char*);
+void *scanScript,*swapScript,*positionScript,*poseScript,*spentScript,*skillScript,*noticeScript;
+unsigned prefix;
+int repairRequired=55;
+bool ready, blockOnWorldEntry;
+void* block;
+struct Seen { Ptr root{}; bool observedArmed=false, openOnLoad=false; double due=0; };
+std::map<unsigned,Seen> nearby;
+std::vector<Value> scanBuffer;
+double nextScan, nextMove;
+unsigned selected,previousGrips=3,previousValid=0;
+Gesture gesture;
+Vec originalPos,handOffset;
+int carryHand=-1;
+
+// Only the four ACTI forms supplied by this addon use Fallout's live trap
+// script. Closed inventory objects can be carried, traded, stacked and repaired.
+int tierOf(Ptr ref,bool& armed) {
+    if (!loose(ref)) return -1;
+    unsigned base=id(ptr(ref,0x20));
+    if ((base&0xff000000)!=prefix) return -1;
+    unsigned key=base&0xffffff;
+    armed=key>=0x811 && key<=0x814;
+    if (armed) return int(key-0x810);
+    return key>=0x800 && key<=0x804 ? int(key-0x800) : -1;
+}
+constexpr char swapSource[]=R"(ref oldTrap
+ref newItem
+ref replacement
+ref parent
+ref ownerForm
+int makeArmed
+int minimumRepair
+int stack
+float px
+float py
+float pz
+float yaw
+begin Function {oldTrap newItem makeArmed minimumRepair}
+ if eval !oldTrap || !newItem || oldTrap.GetDisabled
+  return
+ endif
+ if eval makeArmed && (player.GetAV Repair) < minimumRepair
+  return
+ endif
+ let parent := oldTrap.GetParentCell
+ let px := oldTrap.GetPos X
+ let py := oldTrap.GetPos Y
+ let pz := oldTrap.GetPos Z
+ let yaw := oldTrap.GetAngle Z
+ let stack := oldTrap.GetRefCount
+ let replacement := PlaceAtCell newItem 1 parent px py pz
+ if eval !replacement
+  return
+ endif
+ replacement.SetAngle Z yaw
+ if makeArmed
+  let ownerForm := player.GetBaseObject
+  replacement.SetOwnership ownerForm
+ endif
+ if eval makeArmed && stack > 1
+  let stack -= 1
+  oldTrap.SetRefCount stack
+  if eval oldTrap.GetRefCount != stack
+   replacement.Disable
+   replacement.MarkForDelete
+   return
+  endif
+ else
+  oldTrap.Disable
+  oldTrap.MarkForDelete
+ endif
+ SetFunctionValue replacement
+end)";
+// The ray command returns distance from its END point to the surface. Turn
+// off only this item's collision during the synchronous query to skip its mesh.
+constexpr char positionSource[]=R"(ref item
+int fx
+int fy
+int fz
+int settle
+float px
+float py
+float pz
+float highZ
+float lowZ
+float hitDistance
+begin Function {item fx fy fz settle}
+ let px := fx / 16.0
+ let py := fy / 16.0
+ let pz := fz / 16.0
+ if settle
+  let highZ := pz + 20
+  let lowZ := pz - 200
+  item.ToggleObjectCollision 0
+  let hitDistance := GetP2PRayCastRange px py highZ px py lowZ 6
+  item.ToggleObjectCollision 1
+  if hitDistance <= 0
+   return
+  endif
+  let pz := lowZ + hitDistance + 2.25
+  item.SetAngle X 0
+  item.SetAngle Y 0
+ endif
+ item.SetPosEx px py pz
+ SetFunctionValue 1
+end)";
+template<typename... Args> Value run(void* script,Args... args) {
+    Value v;
+    if (!api->call(script,nullptr,nullptr,&v,sizeof...(args),args...)) return {};
+    return v;
+}
+void note(const char* action,unsigned ref,int tier) {
+    char line[140]; std::snprintf(line,sizeof line,"bear_trap=%s ref=%08x condition=%d",action,ref,tier*25);
+    writeLog(line);
+}
+bool move(Ptr ref,Vec p,bool settle) {
+    if (!p.valid() || std::abs(p.x)>1e7 || std::abs(p.y)>1e7 || std::abs(p.z)>1e7) return false;
+    auto v=run(positionScript,ref,int(std::lround(p.x*16)),int(std::lround(p.y*16)),
+               int(std::lround(p.z*16)),int(settle));
+    return v.type==1 && v.number==1;
+}
+void stop() { selected=0; gesture={}; carryHand=-1; nextMove=0; }
+void settleCarry(Ptr ref) {
+    if (gesture.carried && !move(ref,field<Vec>(ref,0x30),true)) move(ref,originalPos,false);
+}
+Ptr swap(Ptr ref,int nextTier,bool armed) {
+    auto form=lookup(prefix+(armed ? 0x810u : 0x800u)+nextTier);
+    if (!form) return nullptr;
+    auto result=run(swapScript,ref,form,int(armed),repairRequired);
+    if (result.type!=2 || !result.object) return nullptr;
+    auto& created=nearby[id(result.object)];
+    created.openOnLoad=armed;
+    created.observedArmed=armed;
+    return result.object;
+}
+void scan(Ptr pc,double now) {
+    std::vector<unsigned> found;
+    for (int type:{21,31}) {
+        auto v=run(scanScript,type);
+        if (v.type!=4 || !v.object) continue;
+        unsigned count=arrays->size(v.object);
+        if (count>65535 || !count) continue;
+        scanBuffer.resize(count);
+        if (!arrays->elements(v.object,scanBuffer.data(),nullptr)) continue;
+        for (const auto& item:scanBuffer) {
+            bool armed=false;
+            if (item.type==2 && tierOf(item.object,armed)>=0 && root(item.object))
+                found.push_back(id(item.object));
+        }
+    }
+    for (auto key:found) nearby.try_emplace(key);
+    for (auto it=nearby.begin();it!=nearby.end();) {
+        auto ref=lookup(it->first);
+        bool armed=false;
+        if (tierOf(ref,armed)<0 || (!root(ref) && !it->second.openOnLoad) ||
+            !ptr(ref,0x40) || (field<Vec>(ref,0x30)-field<Vec>(pc,0x30)).length()>2200) {
+            it=nearby.erase(it);
+        } else ++it;
+    }
+    nextScan=now+0.65;
+}
+bool hands(Ptr pc,Vec (&out)[2]) {
+    Ptr rig=root(pc);
+    for (int h=0;h<2;++h) {
+        const char* name=h ? "Bip01 R Finger1" : "Bip01 L Finger1";
+        Ptr bone=named(rig,name);
+        if (!bone) bone=named(ptr(pc,0x694),name);
+        if (!bone) return false;
+        out[h]=field<Pose>(bone,0x68).pos;
+        if (!out[h].valid() || (out[h]-field<Vec>(pc,0x30)).length()>260) return false;
+    }
+    return true;
+}
+void interact(Ptr ref,int tier,bool armed,const Vec (&palms)[2],unsigned gripsNow,unsigned pressed,double now) {
+    Pose pose=field<Pose>(root(ref),0x68);
+    if (!(pose.scale>0.001f)) { settleCarry(ref); stop(); return; }
+    Vec local[]{pose.local(palms[0]),pose.local(palms[1])};
+    unsigned key=id(ref);
+    Action action=gesture.step(local,gripsNow,pressed,armed,now);
+    if (gesture.hand>=0 && carryHand<0) {
+        carryHand=gesture.hand;
+        originalPos=field<Vec>(ref,0x30);
+        handOffset=originalPos-palms[carryHand];
+    }
+    switch(action) {
+        case Action::none:
+            if (gesture.hand<0 && !gesture.paired) stop();
+            return;
+        case Action::carry:
+            if (now>=nextMove) { move(ref,palms[carryHand]+handOffset,false); nextMove=now+0.022; }
+            return;
+        case Action::cancel: case Action::place: settleCarry(ref); break;
+        case Action::arm: {
+            settleCarry(ref);
+            auto skill=run(skillScript);
+            if (!tier || skill.type!=1 || skill.number<repairRequired) run(noticeScript,int(tier==0),repairRequired);
+            else if (move(ref,field<Vec>(ref,0x30),true) && swap(ref,tier,true)) note("armed",key,tier);
+            break;
+        }
+        case Action::disarm: {
+            // If the native trap fired during the gesture, the spent path owns its wear.
+            auto spent=run(spentScript,ref);
+            if (spent.type==1 && spent.number==0 && swap(ref,tier,false)) note("recovered",key,tier);
+            break;
+        }
+    }
+    stop();
+}
+} // namespace
+
+bool initialize(Scripts* scripts,Arrays* arrayApi,void (*logger)(const char*)) {
+    api=scripts; arrays=arrayApi; writeLog=logger;
+    auto resolve=api->compile("begin Function {}\n SetFunctionValue (GetFormFromMod \"TTWVRClutterDistractions.esp\" \"804\")\nend");
+    if (!resolve) return false;
+    Value checked=run(resolve);
+    if (checked.type!=2 || !checked.object || field<unsigned char>(checked.object,4)!=31) return false;
+    prefix=id(checked.object)&0xff000000;
+    scanScript=api->compile("int kind\nbegin Function {kind}\n SetFunctionValue (player.GetRefs kind 1 1 2048)\nend");
+    swapScript=api->compile(swapSource);
+    positionScript=api->compile(positionSource);
+    poseScript=api->compile("ref item\nint opened\nbegin Function {item opened}\n if opened\n  item.PlayGroup Backward 1\n else\n  item.PlayAnimSequence \"Forward\"\n endif\nend");
+    spentScript=api->compile("ref item\nbegin Function {item}\n SetFunctionValue (item.GetVariable \"disarmed\")\nend");
+    skillScript=api->compile("begin Function {}\n SetFunctionValue (player.GetAV Repair)\nend");
+    noticeScript=api->compile("int broken\nint minimumRepair\nbegin Function {broken minimumRepair}\n if broken\n  MessageEx \"Repair this bear trap at a workbench.\"\n else\n  MessageEx \"Repair %.0f required to arm a bear trap.\" minimumRepair\n endif\nend");
+    block=api->compile("ref item\nbegin Function {item}\n SetInteractionDisabled 1 item\n SetFunctionValue (GetInteractionDisabled item)\nend");
+    if (!scanScript || !swapScript || !positionScript || !poseScript || !spentScript || !skillScript || !noticeScript || !block) return false;
+    for (unsigned tier=1;tier<=4;++tier) {
+        Ptr form=lookup(prefix+0x810+tier);
+        if (field<unsigned char>(form,4)!=21 || run(block,form).number!=1) return false;
+    }
+    repairRequired=std::clamp(int(GetPrivateProfileIntA("BearTrap","MinimumRepair",55,
+        ".\\Data\\NVSE\\Plugins\\TTWVRClutterDistractions.ini")),0,100);
+    ready=true;
+    unsigned inputs=installInput();
+    char line[100]; std::snprintf(line,sizeof line,"bear_traps ready forms=%02x minimum_repair=%d controller_openxr=%u controller_openvr=%u",
+                                  prefix>>24,repairRequired,inputs&1,inputs>>1); logger(line);
+    return true;
+}
+void suspend() {
+    if (selected) {
+        Ptr ref=lookup(selected); bool armed=false;
+        if (tierOf(ref,armed)>=0 && root(ref)) settleCarry(ref);
+    }
+    stop(); previousGrips=3; previousValid=0;
+}
+void reset() {
+    blockOnWorldEntry=true;
+    stop(); nearby.clear(); nextScan=0; previousGrips=3; previousValid=0;
+}
+void frame(Ptr pc,double now) {
+    if (!ready) return;
+    if (blockOnWorldEntry) {
+        for (unsigned tier=1; tier<=4; ++tier)
+            if (auto form=lookup(prefix+0x810+tier)) run(block,form);
+        blockOnWorldEntry=false;
+    }
+    if (now>=nextScan) scan(pc,now);
+    int input=grips();
+    unsigned valid=input<0 ? 0u : unsigned(input>>2);
+    unsigned down=input<0 ? 0u : unsigned(input&3);
+    unsigned pressed=down & ~previousGrips & previousValid & valid;
+    previousGrips=down; previousValid=valid;
+    bool canReach=false;
+    for (auto& [key,state]:nearby) {
+        Ptr ref=lookup(key); bool armed=false;
+        int tier=tierOf(ref,armed);
+        Ptr node=tier<0 ? nullptr : root(ref);
+        if (!node) continue;
+        if (state.root!=node) {
+            state.root=node;
+            if (!armed || state.openOnLoad) run(poseScript,ref,int(armed));
+            state.openOnLoad=false;
+        }
+        if (armed && now>=state.due) {
+            state.due=now+0.25;
+            auto spent=run(spentScript,ref);
+            if (spent.type==1 && spent.number!=0) {
+                auto pos=field<Vec>(ref,0x30);
+                if (Ptr closed=swap(ref,tier-1,false)) {
+                    if (state.observedArmed) world::reportAt(pc,closed,pos,70);
+                    note("sprung",key,tier-1);
+                    if (selected==key) stop();
+                }
+                continue;
+            }
+            state.observedArmed=spent.type==1;
+        }
+        auto delta=field<Vec>(pc,0x30)-field<Vec>(ref,0x30);
+        if (delta.length()<210) canReach=true;
+    }
+    if (!canReach && !selected) return;
+    Vec palms[2]{};
+    if (!valid || (!down && !selected) || !hands(pc,palms)) {
+        if (selected) {
+            Ptr ref=lookup(selected); bool armed=false;
+            if (tierOf(ref,armed)>=0) settleCarry(ref);
+            stop();
+        }
+        return;
+    }
+    if (selected) {
+        Ptr ref=lookup(selected); bool armed=false; int tier=tierOf(ref,armed);
+        if (tier<0 || !root(ref)) { stop(); return; }
+        if ((gesture.paired && valid!=3) || (carryHand>=0 && !(valid&(1u<<carryHand)))) {
+            settleCarry(ref); stop(); return;
+        }
+        interact(ref,tier,armed,palms,down,pressed,now);
+        return;
+    }
+    if (!pressed) return;
+    float best=1e9f;
+    for (auto& [key,state]:nearby) {
+        (void)state;
+        Ptr ref=lookup(key); bool armed=false;
+        if (tierOf(ref,armed)<0 || !root(ref) || (armed && down!=3)) continue;
+        Pose pose=field<Pose>(root(ref),0x68);
+        if (!(pose.scale>0.001f)) continue;
+        for (int h=0;h<2;++h) if (pressed & (1u<<h)) {
+            auto local=pose.local(palms[h]);
+            float dist=(local-Vec{0,0,10}).length();
+            if (withinReach(local,armed) && dist<best) { best=dist; selected=key; }
+        }
+    }
+    if (selected) {
+        Ptr ref=lookup(selected); bool armed=false; int tier=tierOf(ref,armed);
+        interact(ref,tier,armed,palms,down,pressed,now);
+    }
+}
+} // namespace trap

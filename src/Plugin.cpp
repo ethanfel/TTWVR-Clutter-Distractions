@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include "World.h"
+#include "BearTraps.h"
 #include <cstdio>
 #include <map>
 
@@ -16,12 +17,6 @@ struct NVSE { unsigned version,runtime,editor,isEditor; void *add,*opcode;
 struct Info { unsigned version; const char* name; unsigned build; };
 struct Message { const char* sender; unsigned type,length; void* data; };
 struct Messages { unsigned version; bool (__cdecl* listen)(unsigned,const char*,void (__cdecl*)(Message*)); };
-struct Value { union { double number{}; Ptr object; }; unsigned char type{}; };
-static_assert(sizeof(Value)==16);
-struct Scripts { bool (__cdecl* call)(void*,void*,void*,Value*,unsigned char,...);
-    void *params,*extract,*format,*callAlt; void* (__cdecl* compile)(const char*); };
-struct Arrays { void* before[6]; unsigned (__cdecl* size)(void*); void* lookup;
-    bool (__cdecl* get)(void*,const Value&,Value&); };
 struct Events { void* before[3]; bool (__cdecl* listen)(const char*,void (__cdecl*)(void*,void*)); };
 Scripts* scripts;
 Arrays* arrays;
@@ -115,13 +110,17 @@ void frame() {
     if (!nextCell) { clear(); return; }
     Value mode;
     if (!scripts->call(getMode,nullptr,nullptr,&mode,0) || mode.type!=1 || mode.number<1) {
-        if (playing) clear();
+        if (playing) { trap::suspend(); clear(); }
         return;
     }
     double now=seconds();
-    if (nextCell!=cell || now-beforeFrame>0.30) { clear(); cell=nextCell; }
+    if (nextCell!=cell || now-beforeFrame>0.30) {
+        if (playing) trap::suspend();
+        clear(); cell=nextCell;
+    }
     float dt=beforeFrame ? float(now-beforeFrame) : 0.f;
     beforeFrame=now; playing=true;
+    trap::frame(pc,now);
     Ptr held=ptr(pc,0x638);
     unsigned heldID=world::id(held);
     if (held) track(held,now,true);
@@ -164,8 +163,8 @@ void frame() {
 }
 void __cdecl message(Message* msg) {
     switch (msg->type) {
-        case 1: case 2: case 6: case 7: inWorld=false; clear(); return;
-        case 8: case 14: inWorld=msg->type==14 || msg->data!=nullptr; clear(); return;
+        case 1: case 2: case 6: case 7: inWorld=false; trap::reset(); clear(); return;
+        case 8: case 14: inWorld=msg->type==14 || msg->data!=nullptr; trap::reset(); clear(); return;
         case 20: break;
         default: return;
     }
@@ -173,14 +172,15 @@ void __cdecl message(Message* msg) {
     if (!initialized) {
         initialized=true; mainThread=GetCurrentThreadId();
         ready=initialize();
-        log(ready ? "ready version=0.1.0" : "inactive: check xNVSE and JIP LN script compilation");
+        if (ready && !trap::initialize(scripts,arrays,log)) log("bear_traps inactive: check ESP or script compilation");
+        log(ready ? "ready version=0.2.0" : "inactive: check xNVSE and JIP LN script compilation");
     }
     if (ready) frame();
 }
 }
 extern "C" __declspec(dllexport) bool NVSEPlugin_Query(const NVSE* n,Info* info) {
     if (!n || !info) return false;
-    *info={1,"TTWVR Clutter Distractions",1};
+    *info={1,"TTWVR Clutter Distractions",2};
     return !n->isEditor && n->runtime==0x040020d0 && n->version>=6;
 }
 extern "C" __declspec(dllexport) bool NVSEPlugin_Load(const NVSE* n) {
