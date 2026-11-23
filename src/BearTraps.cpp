@@ -19,7 +19,7 @@ void (*writeLog)(const char*);
 void *scanScript,*swapScript,*positionScript,*poseScript,*spentScript,*skillScript,*noticeScript;
 unsigned prefix, previousTriggers=3;
 void *grantScript,*deployScript,*stockScript,*emptyScript,*bodyScript,*ownerScript,*floorScript;
-void *caughtActorScript,*injuryScript;
+void *caughtActorScript,*injuryScript,*creatureReactionScript,*directReactionScript,*idleReactionScript;
 Ptr carrier,neutralFaction,stockList,catchSpell;
 int repairRequired=55;
 float deepHeight;
@@ -179,23 +179,67 @@ Ptr swap(Ptr ref,int nextTier,bool armed) {
     if (!armed) run(bodyScript,result.object,2);
     return result.object;
 }
+// Each shipped creature rig below has consecutive left/right leg-hit IDLE forms.
+// Resolve the left form through its master so TTW load order and leveled spawns work.
+constexpr char creatureReactionSource[]=R"(ref victim
+ref actorBase
+ref leftIdle
+string_var modelPath
+begin Function {victim}
+ let actorBase := victim.GetLeveledActorBase
+ if eval !actorBase
+  return
+ endif
+ let modelPath := GetSkeletonModel actorBase
+ if eval (sv_Find "Creatures\SMSpineBreakerDC\" modelPath) >= 0
+  let leftIdle := GetFormFromMod "Fallout3.esm" "020EAA"
+ elseif eval (sv_Find "Creatures\SMSpineBreaker\" modelPath) >= 0
+  let leftIdle := GetFormFromMod "FalloutNV.esm" "020EAA"
+ elseif eval (sv_Find "Creatures\SMBehemoth\" modelPath) >= 0
+  let leftIdle := GetFormFromMod "FalloutNV.esm" "021376"
+ elseif eval (sv_Find "Creatures\SMBoneCrusher\" modelPath) >= 0
+  let leftIdle := GetFormFromMod "BrokenSteel.esm" "008C7A"
+ elseif eval (sv_Find "Creatures\Centaur\" modelPath) >= 0
+  let leftIdle := GetFormFromMod "FalloutNV.esm" "03397C"
+ endif
+ sv_Destruct modelPath
+ SetFunctionValue leftIdle
+end)";
+Ptr legReaction(Ptr victim,bool right) {
+    if (victim==player()) return nullptr;
+    if (field<unsigned char>(victim,4)==0x3b) return lookup(right ? 0x14cc40 : 0x14cc3d);
+    auto left=run(creatureReactionScript,victim);
+    if (left.type!=2 || field<unsigned char>(left.object,4)!=0x48) return nullptr;
+    Ptr idle=right ? lookup(id(left.object)+1) : left.object;
+    return field<unsigned char>(idle,4)==0x48 ? idle : nullptr;
+}
 void catchActor(Ptr ref,bool right) {
     const auto victim=run(caughtActorScript,ref);
     if (victim.type!=2 || !victim.object) return;
     const auto type=field<unsigned char>(victim.object,4);
     if (type!=0x3b && type!=0x3c) return;
     // The seated and standing player camera stays under TTWVR control.
-    Ptr idle=type==0x3b && victim.object!=player() ? lookup(right ? 0x14cc40 : 0x14cc3d) : nullptr;
-    auto result=run(injuryScript,victim.object,int(right),catchSpell,idle);
+    Ptr idle=legReaction(victim.object,right);
+    auto result=run(injuryScript,victim.object,int(right),catchSpell);
+    const char* route="none";
     if (result.type==1 && result.number==0 && victim.object!=player() && root(victim.object)) {
         // FalloutNV 1.4.0.525 Actor::QueueReplacementLocomotions(force).
         // Recompute the native gait using this actor's skeleton and cripple flags.
         using RefreshGait=void (__thiscall *)(Ptr,bool);
         reinterpret_cast<RefreshGait>(0x8b78c0)(victim.object,true);
+        if (idle) {
+            // An attacking creature can discard the queued idle before it plays.
+            if (type==0x3c && directReactionScript && run(directReactionScript,victim.object,idle).number==1)
+                route="clip";
+            else {
+                run(idleReactionScript,victim.object,idle);
+                route="queued";
+            }
+        }
     }
     char line[160];
-    std::snprintf(line,sizeof line,"bear_trap=caught ref=%08x actor=%08x leg=%s limb_after=%.1f",
-                  id(ref),id(victim.object),right?"right":"left",result.type==1?result.number:-1.);
+    std::snprintf(line,sizeof line,"bear_trap=caught ref=%08x actor=%08x leg=%s limb_after=%.1f reaction=%08x route=%s",
+                  id(ref),id(victim.object),right?"right":"left",result.type==1?result.number:-1.,id(idle),route);
     writeLog(line);
 }
 void scan(Ptr pc,double now) {
@@ -412,9 +456,8 @@ end)");
     injuryScript=api->compile(R"(ref victim
 int rightLeg
 ref spell
-ref idleForm
 float condition
-begin Function {victim rightLeg spell idleForm}
+begin Function {victim rightLeg spell}
  if victim.GetDead
   SetFunctionValue -1
   return
@@ -431,12 +474,22 @@ begin Function {victim rightLeg spell idleForm}
   let condition := victim.GetAV LeftMobilityCondition
  endif
  victim.CastImmediate spell
- if eval victim != player && idleForm
-  victim.PlayIdleEx idleForm
- endif
  SetFunctionValue condition
 end)");
-    if (!caughtActorScript || !injuryScript) return false;
+    creatureReactionScript=api->compile(creatureReactionSource);
+    idleReactionScript=api->compile("ref victim\nref idleForm\nbegin Function {victim idleForm}\n victim.PlayIdleEx idleForm\nend");
+    if (!caughtActorScript || !injuryScript || !creatureReactionScript || !idleReactionScript) return false;
+    if (GetModuleHandleA("kNVSE.dll"))
+        directReactionScript=api->compile(R"(ref victim
+ref idleForm
+string_var clip
+int played
+begin Function {victim idleForm}
+ let clip := "meshes\" + (GetIdleAnimPath idleForm)
+ let played := victim.PlayAnimationPath (clip) 0
+ sv_Destruct clip
+ SetFunctionValue played
+end)");
     skillScript=api->compile("begin Function {}\n SetFunctionValue (player.GetAV Repair)\nend");
     noticeScript=api->compile("int broken\nint minimumRepair\nbegin Function {broken minimumRepair}\n if broken\n  MessageEx \"Repair this bear trap at a workbench.\"\n else\n  MessageEx \"Repair %.0f required to arm a bear trap.\" minimumRepair\n endif\nend");
     allowActivate=api->compile("ref item\nbegin Function {item}\n SetInteractionDisabled 0 item\n SetFunctionValue (GetInteractionDisabled item)\nend");
