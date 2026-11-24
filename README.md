@@ -32,7 +32,7 @@ EyeHeightCm=55
 
 ## Optional ghoul hearing test
 
-Install the [Clutter Audio Test ZIP](https://github.com/ethanfel/TTWVR-Clutter-Distractions/releases/download/v0.2.7/TTWVR-Clutter-Audio-Test-0.2.7.zip) and enable both ESPs, with `TTWVRAudioLab.esp` last of the two. Load a quiet save and enter `coc TTWVRAudioLab` in the console. You start behind two tall crates with the ghouls disabled. The switch starts or stops the trial. Throw a can into the left lane or lure a ghoul over the armed trap on the right. Loading a save resets the encounter.
+Install the [Clutter Audio Test ZIP](https://github.com/ethanfel/TTWVR-Clutter-Distractions/releases/download/v0.2.7/TTWVR-Clutter-Audio-Test-0.2.7.zip) and enable both ESPs, with `TTWVRAudioLab.esp` last of the two. Load a quiet save and enter `coc TTWVRAudioLab` in the console. Flip the switch at the entrance. Both ghouls start about twice the normal indoor detection distance away. Compare the sounds at the first table, then walk to the second table to test their hearing. Stand back and lob a can over the row of crates. The ghouls can investigate on their side. An armed trap sits on the right. Reloading a save resets the encounter.
 
 ## Build
 

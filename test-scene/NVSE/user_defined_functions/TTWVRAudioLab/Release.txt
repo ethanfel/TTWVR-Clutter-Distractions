@@ -1,12 +1,8 @@
 ref subjectRef
 ref homeMarkerRef
-float separation
 begin Function {subjectRef homeMarkerRef}
+ subjectRef.MoveTo homeMarkerRef
  subjectRef.Enable
- let separation := subjectRef.GetDistance homeMarkerRef
- if separation > 6
-  subjectRef.MoveTo homeMarkerRef
- endif
  subjectRef.SetAngle Z 0
  if subjectRef.GetDead
   subjectRef.Resurrect 1

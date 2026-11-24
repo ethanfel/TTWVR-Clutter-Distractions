@@ -10,22 +10,22 @@ console, enter the following command, then close the console.
 
     coc TTWVRAudioLab
 
-You arrive behind two tall crates. Both feral ghouls start disabled.
-The small switch on the near face of the crates starts or stops the test.
-Loading a save resets the ghouls. If you save here before testing, reloading
-that save also restores the clutter and trap placements from that moment.
+You arrive with both ghouls disabled. The switch on the near face of the
+crates starts or stops the trial. The ghouls start about twice the normal indoor
+detection distance from the switch. Loading a save resets the ghouls. If you tried the old
+short room, load a save made before you entered it to get fresh clutter.
 
-1. Stay behind the crates. The table on your left has loose metal cans, glass
-   bottles, mugs and a tire iron. Try a gentle set-down and a hard throw with
-   the ghouls off to hear the difference.
-2. Activate the switch and remain behind cover. Throw a can past the left
-   edge into the open lane. Listen for the landing and for ghoul movement.
-   For a second comparison, hold a can and tap it with the equipped tire iron.
-   Stepping out exposes you to normal sight detection.
-3. Two folded traps are on the floor to your right. Pull one open with both
-   hands to hear the latch. The normal Repair requirement applies (55 by
-   default). A separate trap is already armed in the right lane. Lure a ghoul
-   across it to hear the snap and impact from where the jaws are.
+1. Flip the entrance switch. You can stand or walk around the first table
+   and compare a gentle set-down, a thrown can and a tap with the tire iron.
+   This end of the range is for listening to the objects yourself.
+2. To test what the ghouls hear, follow the long hall to the second table,
+   behind a solid row of crates. Stand back from them and lob a can over
+   the top. The ghouls can move freely
+   on the far side to investigate the landing. Listen for their footsteps.
+3. Two folded traps at the entrance let you test the arming click. The
+   normal Repair requirement applies (55 by default). An armed trap sits
+   beyond the right side of the divider. Throw near it to try to lure
+   a ghoul across it.
 
 Load your pre-test save to return to your game. To remove the room, disable
 TTWVRAudioLab.esp. If this ZIP supplied your only copy of Clutter Distractions,

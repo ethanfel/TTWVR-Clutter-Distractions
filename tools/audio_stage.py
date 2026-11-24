@@ -15,6 +15,9 @@ VERSION = "0.2.7"
 OWN = 0x02000000  # FalloutNV.esm, the clutter plug-in, then this plug-in
 CELL = OWN + 0x800
 MESH = OWN + 0x801
+FORWARD_LINE = 4096
+LAST_ROW = 22
+NAV_END = (LAST_ROW - 1) * 256 + 78
 
 
 def group(label, kind, records):
@@ -23,9 +26,11 @@ def group(label, kind, records):
 
 
 def navigation():
-    # Leave the table and the two solid crates outside the walkable surface.
+    # Walkable lanes on both sides of the two tables and the entrance cover.
     xs = (-336, -208, -136, -24, 0, 136, 208, 336)
-    ys = (-332, -210, -99, -76, 76, 210, 366, 574)
+    ys = (-332, -210, -99, -76, 76, *range(256, FORWARD_LINE - 210, 256),
+          FORWARD_LINE - 210, FORWARD_LINE - 99, FORWARD_LINE - 76,
+          FORWARD_LINE + 76, FORWARD_LINE + 210, FORWARD_LINE + 400, NAV_END)
     vertices = [(x, y, 1.) for y in ys for x in xs]
     faces = []
     for row in range(len(ys) - 1):
@@ -33,7 +38,11 @@ def navigation():
             x, y = xs[col], ys[row]
             if y == -76 and -136 <= x < 136:
                 continue
-            if y == -210 and -208 <= x < -24:
+            # The row of crates cuts across the room. Ghouls
+            # can investigate actual impacts anywhere on their own side.
+            if y == FORWARD_LINE - 76:
+                continue
+            if y in (-210, FORWARD_LINE - 210) and -208 <= x < -24:
                 continue
             a = row * len(xs) + col
             b, c, d = a + 1, a + len(xs), a + len(xs) + 1
@@ -55,7 +64,7 @@ def navigation():
         (b"NVTR", b"".join(triangles)), (b"NVGD", grid)])
     # Fallout merges per-plugin entries into its one navigation index, as the DLCs do.
     index = record(b"NAVI", 0x14B92, [
-        (b"NVER", u32(11)), (b"NVMI", struct.pack("<4I3fI", 0, MESH, CELL, 0, 0., 121., 1., 0)),
+        (b"NVER", u32(11)), (b"NVMI", struct.pack("<4I3fI", 0, MESH, CELL, 0, 0., (NAV_END - 332) / 2, 1., 0)),
         (b"NVCI", struct.pack("<4I", MESH, 0, 0, 0))])
     return mesh, index
 
@@ -81,38 +90,53 @@ def build():
         flags = (0x400 if editor else 0) | (0x800 if actor else 0)
         (permanent if editor else temporary).append(record(b"ACRE" if actor else b"REFR", form, items, flags))
 
-    # Office kit tiles have built-in floors, ceilings and perimeter walls.
+    def office_tile(ix, iy):
+        west, east = ix == 0, ix == 2
+        south, north = iy == 0, iy == LAST_ROW
+        if (west or east) and (south or north):
+            base = 0x159DD
+            yaw = {(True, True): pi, (True, False): 1.5*pi,
+                   (False, True): 2.5*pi, (False, False): 2*pi}[west, south]
+        elif west or east or south or north:
+            base = 0x159E0
+            yaw = 1.5*pi if west else .5*pi if east else pi if south else 2*pi
+        else:
+            base, yaw = 0x159DF, 0.
+        place(base, (ix - 1) * 256, (iy - 1) * 256, 0., yaw)
+
+    def supplies(y_offset):
+        place(0xF21B3, -116, y_offset - 155, 0)
+        for col, (base, height) in enumerate([(0x22104, 7), (0x5B6CA, 8), (0x9AA4E, 12),
+                                              (0x5B6CE, 1), (0x3406C, 9)]):
+            for y in (-168, -144):
+                place(base, -171 + col*24, y_offset + y, 55 + height)
+        place(0x4328, -57, y_offset - 168, 57)  # tire iron
+
+    # Keep the original reference IDs when updating an existing test install.
     for ix in range(3):
         for iy in range(4):
-            x, y = (ix-1)*256, (iy-1)*256
-            west, east, south, north = ix == 0, ix == 2, iy == 0, iy == 3
-            if (west or east) and (south or north):
-                base = 0x159DD
-                yaw = {(True, True): pi, (True, False): 1.5*pi,
-                       (False, True): 2.5*pi, (False, False): 2*pi}[west, south]
-            elif west or east or south or north:
-                base = 0x159E0
-                yaw = 1.5*pi if west else .5*pi if east else pi if south else 2*pi
-            else:
-                base, yaw = 0x159DF, 0.
-            place(base, x, y, 0., yaw)
+            office_tile(ix, iy)
 
     place(0x32, 0, -176, 4, key=0x810, editor="TTWVRAudioArrival")
     place(panel_base, 0, -56, 91, key=0x811, editor="TTWVRAudioControls")
     for x in (-53, 53):
         place(0x10AC4B, x, 0, 0)  # opaque water crates, 156 units high
-    place(0xF21B3, -116, -155, 0)
-    for col, (base, height) in enumerate([(0x22104, 7), (0x5B6CA, 8), (0x9AA4E, 12),
-                                          (0x5B6CE, 1), (0x3406C, 9)]):
-        for y in (-168, -144):
-            place(base, -171 + col*24, y, 55 + height)
-    place(0x4328, -57, -168, 57)  # tire iron for tapping held objects
+    supplies(0)
     place(0x01000804, 86, -117, 5)
     place(0x01000804, 95, -222, 5)
-    place(0x01000814, 233, 162, 2.25)
-    for i, (x, y, base) in enumerate(((-72, 250, 0x9FAFA), (68, 335, 0x1CF7A))):
+    place(0x01000814, 183, FORWARD_LINE + 160, 2.25)
+    for i, (x, y, base) in enumerate(((98, 5120, 0x9FAFA), (205, 5295, 0x1CF7A))):
         place(0x34, x, y, 4, key=0x816+i, editor=f"TTWVRAudioGhoulHome{i+1}")
         place(base, x, y, 4, key=0x814+i, editor=f"TTWVRAudioGhoul{i+1}", actor=True)
+
+    for ix in range(3):
+        for iy in range(4, LAST_ROW + 1):
+            office_tile(ix, iy)
+    # Continuous solid cover at ghoul and player eye height. These crates
+    # have collision all the way to the floor and leave room for a lob above.
+    for x in range(-371, 372, 106):
+        place(0x10AC4B, x, FORWARD_LINE, 0)
+    supplies(FORWARD_LINE)
 
     lighting = bytes((100,100,94,0, 150,145,122,0, 46,48,48,0)) + struct.pack("<ffiifff", 5000,8000,40,45,.5,0,1)
     cell = record(b"CELL", CELL, [
