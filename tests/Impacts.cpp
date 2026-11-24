@@ -1,4 +1,5 @@
 #include "../src/Impacts.h"
+#include "../src/ThrowMotion.h"
 #include <cassert>
 #include <cstdio>
 using namespace noise;
@@ -14,6 +15,32 @@ int main() {
     assert(toss({},true,false,3)==Source::none);
     assert(toss({0,0,-2},false,false,3.02)==Source::none);
     assert(toss({0,0,.3f},false,false,3.04)==Source::landing); // short terrain contact
+
+    // A throw at 3 m/s followed by a short delay opening the grip.
+    clutter::ThrowMotion swing;
+    for (int i=0;i<=20;++i) swing.sample({0,2.1f*i,80},1+i*.01);
+    swing.sample({0,42,80},1.23);
+    Vec release=swing.release(1.23);
+    assert(std::abs(release.y-4.95f)<.02f && release.x==0 && release.z==0);
+    assert(std::abs((release*clutter::havokUnitsPerMetre).y-49.51f)<.05f);
+    for (int i=24;i<=50;++i) swing.sample({0,42,80},1+i*.01);
+    assert(swing.release(1.50).length()==0);
+    swing.sample({-70,42,80},1.51); // recenter
+    assert(swing.release(1.51).length()==0);
+
+    Motion flight;
+    flight.beginFlight(2);
+    for (int i=0;i<=8;++i) // Speed decreases on ascent without any collision.
+        assert(flight.step({0,40,12.f-i*1.9f},false,false,false,2+.02*i,.02f).source==Source::none);
+    assert(flight.step({0,-8,-4},false,false,false,2.18,.02f).source==Source::landing);
+    assert(flight.step({0,-6,-5},false,false,true,2.20,.02f).source==Source::none);
+
+    flight.beginFlight(3);
+    flight.step({0,54,19},false,false,false,3,.016f);
+    assert(flight.step({0,40,13},false,false,false,3.016,.016f).source==Source::none);
+    assert(flight.step({0,47,10},false,false,false,3.032,.016f).source==Source::none);
+    assert(flight.step({0,47,0},false,false,false,3.12,.012f).source==Source::none);
+    assert(flight.step({0,-20,-1},false,true,false,3.14,.02f).source==Source::landing);
 
     Motion bump;
     assert(bump.step({},false,true,true,0,.02f).source==Source::none);

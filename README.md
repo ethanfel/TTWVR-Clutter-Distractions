@@ -4,11 +4,13 @@ Throw a can, bump loose clutter, or strike a held object to make nearby enemies 
 
 ## Install
 
-1. Download the [0.2.7 test build](https://github.com/ethanfel/TTWVR-Clutter-Distractions/releases/download/v0.2.7/TTWVRClutterDistractions-0.2.7.zip).
+1. Download the [0.2.8 test build](https://github.com/ethanfel/TTWVR-Clutter-Distractions/releases/download/v0.2.8/TTWVRClutterDistractions-0.2.8.zip).
 2. Install the ZIP with your mod manager. Enable the mod and **TTWVRClutterDistractions.esp** in your VR profile. For manual installation, extract the ZIP into `Fallout New Vegas/Data`.
 3. Restart Fallout and load your save.
 
 Requires TTWVR 1.1.7, Fallout New Vegas 1.4.0.525, xNVSE 6.3+ and JIP LN NVSE.
+
+Release grip during your swing to throw a loose object in the direction your hand is moving. Open a still hand to drop it.
 
 ## Portable bear trap
 
@@ -32,7 +34,7 @@ EyeHeightCm=55
 
 ## Optional ghoul hearing test
 
-Install the [Clutter Audio Test ZIP](https://github.com/ethanfel/TTWVR-Clutter-Distractions/releases/download/v0.2.7/TTWVR-Clutter-Audio-Test-0.2.7.zip) and enable both ESPs, with `TTWVRAudioLab.esp` last of the two. Load a quiet save and enter `coc TTWVRAudioLab` in the console. You are invisible to the ghouls while in the room. Leaving restores your usual visibility. Flip the switch on the left. The ghouls start facing away, about twice the normal detection distance from the entrance. The second table has a clear view down the open aisle. Throw a can and watch where they investigate. You can walk closer for a shorter throw. An armed trap lies downrange on the right. Reloading a save resets the encounter.
+Install the [Clutter Audio Test ZIP](https://github.com/ethanfel/TTWVR-Clutter-Distractions/releases/download/v0.2.8/TTWVR-Clutter-Audio-Test-0.2.8.zip) and enable both ESPs, with `TTWVRAudioLab.esp` last of the two. Load a quiet save and enter `coc TTWVRAudioLab` in the console. You are invisible to the ghouls while in the room. Leaving restores your usual visibility. Flip the switch on the left. The ghouls start facing away, about twice the normal detection distance from the entrance. The second table has a clear view down the open aisle. Throw a can and watch where they investigate. You can walk closer for a shorter throw. An armed trap lies downrange on the right. Reloading a save resets the encounter.
 
 ## Build
 

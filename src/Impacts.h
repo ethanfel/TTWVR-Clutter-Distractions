@@ -54,6 +54,10 @@ struct Motion {
     Vec before{};
     bool seeded=false, heldBefore=false, playerBefore=false, contactBefore=false, spent=false;
     double lastBump=-10;
+    bool thrown=false;
+    double releasedAt{};
+    void beginFlight(double now) { releasedAt=now; thrown=true; seeded=false; spent=false; }
+
     Impact step(Vec velocity,bool held,bool playerTouch,bool solid,double now,float dt) {
         Impact out;
         if (!velocity.valid()) { *this={}; return out; }
@@ -61,9 +65,23 @@ struct Motion {
         const float delta=(velocity-before).length();
         const bool continuous=seeded && dt>0 && dt<0.12f;
         if (held) {
-            spent=false;
+            thrown=false; spent=false;
             if (continuous && heldBefore && solid && !contactBefore && previousSpeed>=0.65f && delta>=0.38f)
                 out={Source::knock,previousSpeed};
+        } else if (thrown) {
+            // Speeds here are Havok units/s. Free flight slows on the ascent.
+            // A solid hit changes horizontal velocity or interrupts gravity.
+            float threshold=std::max(2.f,previousSpeed*.12f);
+            float horizontal=std::hypot(before.x,before.y);
+            float forwardLoss=horizontal>0 ? horizontal-(velocity.x*before.x+velocity.y*before.y)/horizontal : 0;
+            bool rebound=before.z < -threshold && velocity.z-before.z>threshold;
+            bool confirmed=solid && !playerTouch && (!contactBefore || forwardLoss>threshold || rebound);
+            // The host finishes handing off the grab spring on release. Without
+            // a contact manifold, infer a brief bounce only after that handoff.
+            bool deflected=now-releasedAt>.10 && (rebound || forwardLoss>threshold);
+            if (continuous && previousSpeed>=.75f && (confirmed || deflected)) {
+                out={Source::landing,previousSpeed}; spent=true; thrown=false;
+            }
         } else if (playerTouch && now-lastBump>0.35 &&
                    ((!playerBefore && speed>=0.65f) || (continuous && speed-previousSpeed>=0.65f))) {
             out={Source::bump,speed}; lastBump=now; spent=false;

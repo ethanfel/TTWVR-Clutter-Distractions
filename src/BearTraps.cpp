@@ -380,6 +380,8 @@ void interact(Ptr ref,int tier,bool armed,const Vec (&palms)[2],unsigned gripsNo
 }
 } // namespace
 
+bool isPortable(Ptr ref) { bool armed=false; return ready && tierOf(ref,armed)>=0; }
+
 bool initialize(Scripts* scripts,Arrays* arrayApi,void (*logger)(const char*)) {
     api=scripts; arrays=arrayApi; writeLog=logger;
     auto resolve=api->compile("begin Function {}\n SetFunctionValue (GetFormFromMod \"TTWVRClutterDistractions.esp\" \"804\")\nend");

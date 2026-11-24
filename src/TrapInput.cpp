@@ -10,6 +10,7 @@
 namespace trap {
 namespace {
 std::atomic<DWORD> sample{};
+unsigned char* hostBase{};
 constexpr DWORD clockMask=0x00ffffffu;
 using Poll=bool (__thiscall *)(void*, unsigned char*);
 template<int Backend> struct Input {
@@ -64,8 +65,22 @@ unsigned installInput() {
         std::memcmp(host+0x6e986d,xr,sizeof xr) || std::memcmp(host+0x6c8954,vr,sizeof vr)) return 0;
     unsigned backends=Input<0>::attach(host,0xaf3568)?1u:0u;
     if (Input<1>::attach(host,0xaf36d0)) backends|=2;
-    if (backends) crouch::bind(host);
+    if (backends) { hostBase=host; crouch::bind(host); }
     return backends;
+}
+// TTWVR 1.1.7 world-grab slots and its world-space physical pickup pose.
+unsigned char* heldObject(int hand) {
+    if (!hostBase) return nullptr;
+    if (hostBase[0x1538805] && *reinterpret_cast<int*>(hostBase+0x1035e60)==hand)
+        return *reinterpret_cast<unsigned char**>(hostBase+0x15395e0);
+    if (hostBase[0x15388d4] && *reinterpret_cast<int*>(hostBase+0x15388d8)==hand)
+        return *reinterpret_cast<unsigned char**>(hostBase+0x15388dc);
+    return nullptr;
+}
+bool handPoint(int hand,noise::Vec& point) {
+    using Pose=bool (__thiscall*)(unsigned char*,int,int,noise::Vec*,float*);
+    float matrix[9]{};
+    return hostBase && reinterpret_cast<Pose>(hostBase+0x70acb0)(hostBase+0x1d1fab0,hand,0,&point,matrix) && point.valid();
 }
 static DWORD latest() {
     DWORD value=sample.load(std::memory_order_relaxed);

@@ -4,6 +4,7 @@
 namespace trap {
 bool initialize(Scripts*,Arrays*,void (*logger)(const char*));
 void frame(unsigned char* pc,double now,bool drawn);
+bool isPortable(unsigned char* ref);
 void interruptHands();
 void suspend();
 void reset();

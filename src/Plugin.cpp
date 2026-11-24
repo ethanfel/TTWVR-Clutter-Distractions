@@ -3,6 +3,8 @@
 #include <windows.h>
 #include "World.h"
 #include "BearTraps.h"
+#include "TrapInput.h"
+#include "ThrowMotion.h"
 #include <cstdio>
 #include <map>
 
@@ -37,11 +39,21 @@ struct Track {
 std::map<unsigned,Track> tracks;
 struct Candidate { Ptr ref{}; noise::Vec point{}; Source source{}; unsigned sound{}; int level{}; };
 
-void clear() { tracks.clear(); weapon.reset(); cell=nullptr; playing=false; beforeFrame=0; }
+struct ThrowHand {
+    unsigned reference{};
+    clutter::ThrowMotion motion{};
+    noise::Vec release{};
+    double missingSince{},releasedAt{};
+};
+std::array<ThrowHand,2> hands{};
+void clear() { hands={}; tracks.clear(); weapon.reset(); cell=nullptr; playing=false; beforeFrame=0; }
 
 double seconds() {
     static const double hz=[](){ LARGE_INTEGER f; QueryPerformanceFrequency(&f); return double(f.QuadPart); }();
-    LARGE_INTEGER t; QueryPerformanceCounter(&t); return t.QuadPart/hz;
+    // Fallout can select single-precision x87 arithmetic. Subtract counters as
+    // integers first so long system uptime cannot round several frames to one time.
+    static const auto start=[](){ LARGE_INTEGER t; QueryPerformanceCounter(&t); return t.QuadPart; }();
+    LARGE_INTEGER t; QueryPerformanceCounter(&t); return (t.QuadPart-start)/hz;
 }
 void log(const char* message) {
     if (FILE* f=std::fopen("Data/NVSE/Plugins/TTWVRClutterDistractions.log","a")) {
@@ -105,6 +117,63 @@ void emit(const Candidate& e,Ptr pc) {
     log(line);
 }
 
+bool throwable(Ptr ref) {
+    if (!world::loose(ref)) return false;
+    switch (field<unsigned char>(ptr(ref,0x20),4)) {
+        case 0x18: case 0x19: case 0x1a: // armour, books, clothing
+        case 0x1d: case 0x22:             // ingredients, movable statics
+        case 0x29: case 0x2e: case 0x2f: case 0x31: // ammo, keys, aid, notes
+            return true;
+        case 0x1f: return !trap::isPortable(ref); // miscellaneous items
+        default: return false;
+    }
+}
+void updateThrow(int h,Ptr pc,const std::array<Ptr,2>& held,Ptr nativeHeld,int grips,double now) {
+    auto& hand=hands[h];
+    bool tracked=grips>=0 && (grips&(4<<h));
+    bool pressed=tracked && (grips&(1<<h));
+    Ptr item=held[h];
+    if (!tracked) { hand={}; return; }
+    if (pressed && item && throwable(item)) {
+        if (hand.reference!=world::id(item) || hand.releasedAt) hand={};
+        hand.reference=world::id(item);
+        hand.missingSince=0;
+    }
+    if (!hand.reference) return;
+    Ptr ref=world::lookup(hand.reference);
+    if (!throwable(ref) || ptr(ref,0x40)!=cell || (item && item!=ref) || held[1-h]==ref) {
+        hand={}; return;
+    }
+    if (!hand.releasedAt) {
+        if (!item && !hand.missingSince) hand.missingSince=now;
+        if (hand.missingSince && now-hand.missingSince>.075) { hand={}; return; }
+        noise::Vec point{};
+        if (!trap::handPoint(h,point)) { hand={}; return; }
+        hand.motion.sample(point-field<noise::Vec>(pc,0x30),now);
+        if (pressed) return;
+        hand.release=hand.motion.release(now);
+        if (!hand.release.length()) { hand={}; return; }
+        hand.releasedAt=now;
+    }
+    if (pressed || now-hand.releasedAt>.12) { hand={}; return; }
+    if (item || nativeHeld==ref) return;
+    Ptr body=world::mobileBody(world::root(ref));
+    if (!body) return;
+    auto current=field<noise::Vec>(body,0x1b0);
+    auto desired=hand.release*clutter::havokUnitsPerMetre;
+    if (current.valid() && current.length()<desired.length()) {
+        float velocity[4]{desired.x,desired.y,desired.z,0.f};
+        std::memcpy(body+0x1b0,velocity,sizeof velocity);
+        reinterpret_cast<void (__thiscall*)(Ptr)>(0xc9c1d0)(body); // hkpRigidBody::UpdateMotion
+        char line[144];
+        std::snprintf(line,sizeof line,"clutter_throw ref=%08x hand=%d native_mps=%.2f release_mps=%.2f",
+            hand.reference,h,current.length()/clutter::havokUnitsPerMetre,hand.release.length());
+        log(line);
+    }
+    if (auto state=track(ref,now)) state->motion.beginFlight(now);
+    hand={};
+}
+
 void frame() {
     Ptr pc=world::player(), nextCell=ptr(pc,0x40);
     if (!nextCell) { if (playing) trap::reset(); clear(); return; }
@@ -125,6 +194,12 @@ void frame() {
     beforeFrame=now; playing=true;
     trap::frame(pc,now,mode.number==2);
     Ptr held=ptr(pc,0x638);
+    std::array<Ptr,2> nativeHands{trap::heldObject(0),trap::heldObject(1)};
+    int grips=trap::grips();
+    for (int h=0;h<2;++h) {
+        if (nativeHands[h]) track(nativeHands[h],now,true);
+        updateThrow(h,pc,nativeHands,held,grips,now);
+    }
     unsigned heldID=world::id(held);
     if (held) track(held,now,true);
     for (auto& pair:tracks) pair.second.playerTouch=false;
@@ -135,7 +210,7 @@ void frame() {
     for (auto it=tracks.begin();it!=tracks.end();) {
         Ptr ref=world::lookup(it->first);
         auto& state=it->second;
-        bool inHand=ref && ref==held;
+        bool inHand=ref && (ref==held || ref==nativeHands[0] || ref==nativeHands[1]);
         if (inHand || state.playerTouch || state.melee) state.expires=now+5;
         Ptr node=world::loose(ref) ? world::root(ref) : nullptr;
         Ptr body=world::mobileBody(node,inHand);
@@ -176,14 +251,14 @@ void __cdecl message(Message* msg) {
         initialized=true; mainThread=GetCurrentThreadId();
         ready=initialize();
         if (ready && !trap::initialize(scripts,arrays,log)) log("bear_traps inactive: check ESP or script compilation");
-        log(ready ? "ready version=0.2.7" : "inactive: check xNVSE and JIP LN script compilation");
+        log(ready ? "ready version=0.2.8" : "inactive: check xNVSE and JIP LN script compilation");
     }
     if (ready) frame();
 }
 }
 extern "C" __declspec(dllexport) bool NVSEPlugin_Query(const NVSE* n,Info* info) {
     if (!n || !info) return false;
-    *info={1,"TTWVR Clutter Distractions",9};
+    *info={1,"TTWVR Clutter Distractions",10};
     return !n->isEditor && n->runtime==0x040020d0 && n->version>=6;
 }
 extern "C" __declspec(dllexport) bool NVSEPlugin_Load(const NVSE* n) {
