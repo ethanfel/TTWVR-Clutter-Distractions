@@ -15,7 +15,7 @@ VERSION = "0.2.7"
 OWN = 0x02000000  # FalloutNV.esm, the clutter plug-in, then this plug-in
 CELL = OWN + 0x800
 MESH = OWN + 0x801
-FORWARD_LINE = 4096
+FORWARD_LINE = 3530
 LAST_ROW = 22
 NAV_END = (LAST_ROW - 1) * 256 + 78
 
@@ -27,8 +27,8 @@ def group(label, kind, records):
 
 def navigation():
     # Walkable lanes on both sides of the two tables and the entrance cover.
-    xs = (-336, -208, -136, -24, 0, 136, 208, 336)
-    ys = (-332, -210, -99, -76, 76, *range(256, FORWARD_LINE - 210, 256),
+    xs = (-336, -222, -208, -136, -24, 0, 136, 208, 336)
+    ys = (-332, -210, -99, -76, 76, 184, *range(256, FORWARD_LINE - 210, 256),
           FORWARD_LINE - 210, FORWARD_LINE - 99, FORWARD_LINE - 76,
           FORWARD_LINE + 76, FORWARD_LINE + 210, FORWARD_LINE + 400, NAV_END)
     vertices = [(x, y, 1.) for y in ys for x in xs]
@@ -36,11 +36,7 @@ def navigation():
     for row in range(len(ys) - 1):
         for col in range(len(xs) - 1):
             x, y = xs[col], ys[row]
-            if y == -76 and -136 <= x < 136:
-                continue
-            # The row of crates cuts across the room. Ghouls
-            # can investigate actual impacts anywhere on their own side.
-            if y == FORWARD_LINE - 76:
+            if -76 <= y < 184 and x < -222:
                 continue
             if y in (-210, FORWARD_LINE - 210) and -208 <= x < -24:
                 continue
@@ -118,13 +114,13 @@ def build():
             office_tile(ix, iy)
 
     place(0x32, 0, -176, 4, key=0x810, editor="TTWVRAudioArrival")
-    place(panel_base, 0, -56, 91, key=0x811, editor="TTWVRAudioControls")
-    for x in (-53, 53):
-        place(0x10AC4B, x, 0, 0)  # opaque water crates, 156 units high
+    place(panel_base, -293, -56, 91, key=0x811, editor="TTWVRAudioControls")
+    for y in (0, 106):
+        place(0x10AC4B, -293, y, 0)  # switch housing against the left wall
     supplies(0)
     place(0x01000804, 86, -117, 5)
     place(0x01000804, 95, -222, 5)
-    place(0x01000814, 183, FORWARD_LINE + 160, 2.25)
+    place(0x01000814, 183, 4780, 2.25)
     for i, (x, y, base) in enumerate(((98, 5120, 0x9FAFA), (205, 5295, 0x1CF7A))):
         place(0x34, x, y, 4, key=0x816+i, editor=f"TTWVRAudioGhoulHome{i+1}")
         place(base, x, y, 4, key=0x814+i, editor=f"TTWVRAudioGhoul{i+1}", actor=True)
@@ -132,10 +128,9 @@ def build():
     for ix in range(3):
         for iy in range(4, LAST_ROW + 1):
             office_tile(ix, iy)
-    # Continuous solid cover at ghoul and player eye height. These crates
-    # have collision all the way to the floor and leave room for a lob above.
-    for x in range(-371, 372, 106):
-        place(0x10AC4B, x, FORWARD_LINE, 0)
+    # Leave the eight retired divider IDs unused in existing saves. The
+    # approach, throwing table and ghoul area now share one walkable floor.
+    next_id += 8
     supplies(FORWARD_LINE)
 
     lighting = bytes((100,100,94,0, 150,145,122,0, 46,48,48,0)) + struct.pack("<ffiifff", 5000,8000,40,45,.5,0,1)

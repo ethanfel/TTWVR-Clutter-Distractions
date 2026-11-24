@@ -8,4 +8,5 @@ begin Function {subjectRef homeMarkerRef}
   subjectRef.Resurrect 1
  endif
  subjectRef.RestoreAV Health 1000
+ subjectRef.AddScriptPackage DefaultStayAtEditorLocation
 end

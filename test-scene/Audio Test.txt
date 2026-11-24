@@ -10,22 +10,18 @@ console, enter the following command, then close the console.
 
     coc TTWVRAudioLab
 
-You arrive with both ghouls disabled. The switch on the near face of the
-crates starts or stops the trial. The ghouls start about twice the normal indoor
-detection distance from the switch. Loading a save resets the ghouls. If you tried the old
-short room, load a save made before you entered it to get fresh clutter.
+The two ghouls start disabled. The switch on the left starts or stops
+the trial. They start about twice the normal indoor detection distance
+away, facing the far end. The center aisle is open from end to end.
+If you played an earlier room, load a save from before your first visit.
 
-1. Flip the entrance switch. You can stand or walk around the first table
-   and compare a gentle set-down, a thrown can and a tap with the tire iron.
-   This end of the range is for listening to the objects yourself.
-2. To test what the ghouls hear, follow the long hall to the second table,
-   behind a solid row of crates. Stand back from them and lob a can over
-   the top. The ghouls can move freely
-   on the far side to investigate the landing. Listen for their footsteps.
-3. Two folded traps at the entrance let you test the arming click. The
-   normal Repair requirement applies (55 by default). An armed trap sits
-   beyond the right side of the divider. Throw near it to try to lure
-   a ghoul across it.
+1. Flip the switch. The first table has cans, bottles, mugs and a tire iron
+   for comparing a gentle set-down, a throw and a tap.
+2. Walk to the second table for a clear view of the ghouls. Throw a can
+   down the aisle and watch whether they turn or move toward the landing.
+   You can walk closer for a shorter throw. They can see and hear you there.
+3. Test the arming click with the two folded traps at the entrance
+   (Repair 55 by default). An armed trap lies downrange on the right.
 
 Load your pre-test save to return to your game. To remove the room, disable
 TTWVRAudioLab.esp. If this ZIP supplied your only copy of Clutter Distractions,
