@@ -16,7 +16,7 @@ using namespace world;
 Scripts* api;
 Arrays* arrays;
 void (*writeLog)(const char*);
-void *scanScript,*swapScript,*positionScript,*poseScript,*spentScript,*skillScript,*noticeScript;
+void *scanScript,*swapScript,*positionScript,*openTrapScript,*spentScript,*skillScript,*noticeScript;
 unsigned prefix, previousTriggers=3;
 void *grantScript,*deployScript,*stockScript,*emptyScript,*bodyScript,*ownerScript,*floorScript;
 void *caughtActorScript,*injuryScript,*creatureReactionScript,*directReactionScript,*idleReactionScript;
@@ -27,7 +27,7 @@ bool ready, blockOnWorldEntry;
 void* allowActivate;
 struct Seen {
     Ptr root{};
-    bool observedArmed=false, ownerReady=false, settling=false;
+    bool observedArmed=false, ownerReady=false, settling=false, latchPending=false;
     double due=0, recoverAt=0;
     float lastHeight=1e9f;
 };
@@ -176,6 +176,7 @@ Ptr swap(Ptr ref,int nextTier,bool armed) {
     auto& created=nearby[id(result.object)];
     created={};
     created.observedArmed=armed;
+    created.latchPending=armed;
     if (!armed) run(bodyScript,result.object,2);
     return result.object;
 }
@@ -220,7 +221,7 @@ void catchActor(Ptr ref,bool right) {
     if (type!=0x3b && type!=0x3c) return;
     // The seated and standing player camera stays under TTWVR control.
     Ptr idle=legReaction(victim.object,right);
-    auto result=run(injuryScript,victim.object,int(right),catchSpell);
+    auto result=run(injuryScript,victim.object,int(right),catchSpell,ref);
     const char* route="none";
     if (result.type==1 && result.number==0 && victim.object!=player() && root(victim.object)) {
         // FalloutNV 1.4.0.525 Actor::QueueReplacementLocomotions(force).
@@ -263,7 +264,9 @@ void scan(Ptr pc,double now) {
     for (auto it=nearby.begin();it!=nearby.end();) {
         auto ref=lookup(it->first);
         bool armed=false;
-        if (tierOf(ref,armed)<0 || !root(ref) ||
+        // A newly armed replacement may be waiting for its first loaded 3D frame.
+        bool waitingFor3D=it->second.latchPending && ptr(ref,0x40)==ptr(pc,0x40);
+        if (tierOf(ref,armed)<0 || (!root(ref) && !waitingFor3D) ||
             !ptr(ref,0x40) || (field<Vec>(ref,0x30)-field<Vec>(pc,0x30)).length()>2200) {
             it=nearby.erase(it);
         } else ++it;
@@ -428,7 +431,14 @@ end)");
     scanScript=api->compile("int kind\nbegin Function {kind}\n SetFunctionValue (player.GetRefs kind 1 1 2048)\nend");
     swapScript=api->compile(swapSource);
     positionScript=api->compile(positionSource);
-    poseScript=api->compile("ref item\nint opened\nbegin Function {item opened}\n if opened\n  item.PlayGroup Backward 1\n else\n  item.PlayAnimSequence \"Forward\"\n endif\nend");
+    openTrapScript=api->compile(R"(ref item
+int newlyArmed
+begin Function {item newlyArmed}
+ item.PlayGroup Backward 1
+ if newlyArmed
+  item.PlaySound3D TRPPressurePlate
+ endif
+end)");
     spentScript=api->compile(R"(ref item
 begin Function {item}
  if eval item.GetVariable "disarmed"
@@ -456,8 +466,10 @@ end)");
     injuryScript=api->compile(R"(ref victim
 int rightLeg
 ref spell
+ref trapRef
 float condition
-begin Function {victim rightLeg spell}
+begin Function {victim rightLeg spell trapRef}
+ trapRef.PlaySound3D FXMeleeTrapImpact
  if victim.GetDead
   SetFunctionValue -1
   return
@@ -493,7 +505,7 @@ end)");
     skillScript=api->compile("begin Function {}\n SetFunctionValue (player.GetAV Repair)\nend");
     noticeScript=api->compile("int broken\nint minimumRepair\nbegin Function {broken minimumRepair}\n if broken\n  MessageEx \"Repair this bear trap at a workbench.\"\n else\n  MessageEx \"Repair %.0f required to arm a bear trap.\" minimumRepair\n endif\nend");
     allowActivate=api->compile("ref item\nbegin Function {item}\n SetInteractionDisabled 0 item\n SetFunctionValue (GetInteractionDisabled item)\nend");
-    if (!scanScript || !swapScript || !positionScript || !poseScript || !spentScript || !skillScript || !noticeScript || !allowActivate) return false;
+    if (!scanScript || !swapScript || !positionScript || !openTrapScript || !spentScript || !skillScript || !noticeScript || !allowActivate) return false;
     for (unsigned tier=1;tier<=4;++tier) {
         Ptr form=lookup(prefix+0x810+tier);
         if (field<unsigned char>(form,4)!=21 || run(allowActivate,form).number!=0) return false;
@@ -549,7 +561,10 @@ void frame(Ptr pc,double now,bool drawn) {
                 state.settling=run(bodyScript,ref,0).number==1;
                 state.lastHeight=1e9f;
             }
-            else if (run(spentScript,ref).number==0) run(poseScript,ref,1);
+            else {
+                if (run(spentScript,ref).number==0) run(openTrapScript,ref,int(state.latchPending));
+                state.latchPending=false;
+            }
         }
         if (!armed && state.settling && selected!=key && now>=state.due) {
             state.due=now+0.12;
