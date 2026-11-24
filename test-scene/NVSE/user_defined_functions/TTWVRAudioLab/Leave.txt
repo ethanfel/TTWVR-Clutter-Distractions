@@ -1,0 +1,7 @@
+ref room
+begin Function {}
+ let room := GetFormFromMod "TTWVRAudioLab.esp" "800"
+ if eval (player.GetParentCell) != room
+  Call (CompileScript "TTWVRAudioLab/Quiet.txt")
+ endif
+end

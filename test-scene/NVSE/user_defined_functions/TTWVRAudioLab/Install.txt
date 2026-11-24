@@ -1,0 +1,9 @@
+ref panel
+begin Function {}
+ let panel := GetFormFromMod "TTWVRAudioLab.esp" "811"
+ if eval !panel
+  return
+ endif
+ SetEventHandler "OnActivate" (CompileScript "TTWVRAudioLab/Switch.txt") "ref"::panel
+ Call (CompileScript "TTWVRAudioLab/Quiet.txt")
+end

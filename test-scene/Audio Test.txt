@@ -1,0 +1,32 @@
+TTWVR Clutter Distractions 0.2.7 — Ghoul hearing test
+
+Install this ZIP as a mod in your Windows TTWVR profile. It includes Clutter
+Distractions 0.2.7 and the test room. Enable TTWVRClutterDistractions.esp
+and TTWVRAudioLab.esp, with the audio lab after Clutter Distractions.
+Use TTWVR 1.1.7, xNVSE and JIP LN. Restart the game.
+
+Make a separate save in a quiet location before entering. Open the game
+console, enter the following command, then close the console.
+
+    coc TTWVRAudioLab
+
+You arrive behind two tall crates. Both feral ghouls start disabled.
+The small switch on the near face of the crates starts or stops the test.
+Loading a save resets the ghouls. If you save here before testing, reloading
+that save also restores the clutter and trap placements from that moment.
+
+1. Stay behind the crates. The table on your left has loose metal cans, glass
+   bottles, mugs and a tire iron. Try a gentle set-down and a hard throw with
+   the ghouls off to hear the difference.
+2. Activate the switch and remain behind cover. Throw a can past the left
+   edge into the open lane. Listen for the landing and for ghoul movement.
+   For a second comparison, hold a can and tap it with the equipped tire iron.
+   Stepping out exposes you to normal sight detection.
+3. Two folded traps are on the floor to your right. Pull one open with both
+   hands to hear the latch. The normal Repair requirement applies (55 by
+   default). A separate trap is already armed in the right lane. Lure a ghoul
+   across it to hear the snap and impact from where the jaws are.
+
+Load your pre-test save to return to your game. To remove the room, disable
+TTWVRAudioLab.esp. If this ZIP supplied your only copy of Clutter Distractions,
+keep the mod enabled for its DLL, meshes and main ESP.

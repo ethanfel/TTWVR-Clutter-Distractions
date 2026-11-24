@@ -1,0 +1,30 @@
+ref control
+ref actor
+ref panel
+ref room
+ref first
+ref second
+ref home
+begin Function {control actor}
+ if actor != player
+  return
+ endif
+ let panel := GetFormFromMod "TTWVRAudioLab.esp" "811"
+ let room := GetFormFromMod "TTWVRAudioLab.esp" "800"
+ if eval control != panel || (player.GetParentCell) != room
+  return
+ endif
+ let first := GetFormFromMod "TTWVRAudioLab.esp" "814"
+ let second := GetFormFromMod "TTWVRAudioLab.esp" "815"
+ if eval !(first.GetDisabled) || !(second.GetDisabled)
+  Call (CompileScript "TTWVRAudioLab/Quiet.txt")
+  MessageEx "Hearing test stopped."
+  return
+ endif
+ let home := GetFormFromMod "TTWVRAudioLab.esp" "816"
+ Call (CompileScript "TTWVRAudioLab/Release.txt") first home
+ let home := GetFormFromMod "TTWVRAudioLab.esp" "817"
+ Call (CompileScript "TTWVRAudioLab/Release.txt") second home
+ player.SetGameMainLoopCallback (CompileScript "TTWVRAudioLab/Leave.txt") 1 1 1
+ MessageEx "Hearing test active."
+end

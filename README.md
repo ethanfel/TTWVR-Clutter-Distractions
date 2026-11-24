@@ -30,8 +30,12 @@ MinimumRepair=55
 EyeHeightCm=55
 ```
 
+## Optional ghoul hearing test
+
+Install the [Clutter Audio Test ZIP](https://github.com/ethanfel/TTWVR-Clutter-Distractions/releases/download/v0.2.7/TTWVR-Clutter-Audio-Test-0.2.7.zip) and enable both ESPs, with `TTWVRAudioLab.esp` last of the two. Load a quiet save and enter `coc TTWVRAudioLab` in the console. You start behind two tall crates with the ghouls disabled. The switch starts or stops the trial. Throw a can into the left lane or lure a ghoul over the armed trap on the right. Loading a save resets the encounter.
+
 ## Build
 
-Run `make package` with GNU Make, Python 3, an i686 MinGW-w64 C++17 compiler and native g++ with 32-bit multilib support. The portable meshes use a fixed closed pose derived from Fallout’s bear trap. The original game supplies their textures and the animated armed model. To regenerate the portable meshes, run `tools/portable_mesh.py` with PyFFI, the extracted vanilla `BearTrap01.nif`, `TinCan01.nif`, and `assets/meshes/TTWVRClutter` as arguments. The tested package is written to `build/`. In-game diagnostics go to `Data/NVSE/Plugins/TTWVRClutterDistractions.log`.
+Run `make package` with GNU Make, Python 3, an i686 MinGW-w64 C++17 compiler and native g++ with 32-bit multilib support. The portable meshes use a fixed closed pose derived from Fallout’s bear trap. The original game supplies their textures and the animated armed model. To regenerate the portable meshes, run `tools/portable_mesh.py` with PyFFI, the extracted vanilla `BearTrap01.nif`, `TinCan01.nif`, and `assets/meshes/TTWVRClutter` as arguments. The tested package is written to `build/`. Run `make audio-stage` for the optional all-in-one test ZIP. In-game diagnostics go to `Data/NVSE/Plugins/TTWVRClutterDistractions.log`.
 
 The addon code uses the [GNU General Public License v3.0 only](LICENSE). Fallout assets belong to their respective owners.

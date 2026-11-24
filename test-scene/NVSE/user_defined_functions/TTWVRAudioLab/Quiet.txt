@@ -1,0 +1,15 @@
+ref first
+ref second
+begin Function {}
+ let first := GetFormFromMod "TTWVRAudioLab.esp" "814"
+ let second := GetFormFromMod "TTWVRAudioLab.esp" "815"
+ if eval first && !(first.GetDisabled)
+  first.StopCombat
+  first.Disable
+ endif
+ if eval second && !(second.GetDisabled)
+  second.StopCombat
+  second.Disable
+ endif
+ player.SetGameMainLoopCallback (CompileScript "TTWVRAudioLab/Leave.txt") 0
+end
