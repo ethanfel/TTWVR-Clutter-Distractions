@@ -20,7 +20,8 @@ void *scanScript,*swapScript,*positionScript,*openTrapScript,*spentScript,*skill
 unsigned prefix, previousTriggers=3;
 void *grantScript,*deployScript,*stockScript,*emptyScript,*bodyScript,*ownerScript,*floorScript;
 void *caughtActorScript,*injuryScript,*creatureReactionScript,*directReactionScript,*idleReactionScript;
-Ptr carrier,neutralFaction,stockList,catchSpell;
+void *heldVictimScript,*holdPositionScript,*releaseVictimScript;
+Ptr carrier,neutralFaction,stockList,catchSpell,actorCatchSpell;
 int repairRequired=55;
 float deepHeight;
 bool ready, blockOnWorldEntry;
@@ -29,6 +30,8 @@ struct Seen {
     Ptr root{};
     bool observedArmed=false, ownerReady=false, settling=false, latchPending=false;
     double due=0, recoverAt=0;
+    unsigned heldActor=0;
+    Vec catchPosition{};
     float lastHeight=1e9f;
 };
 std::map<unsigned,Seen> nearby;
@@ -214,16 +217,19 @@ Ptr legReaction(Ptr victim,bool right) {
     Ptr idle=right ? lookup(id(left.object)+1) : left.object;
     return field<unsigned char>(idle,4)==0x48 ? idle : nullptr;
 }
-void catchActor(Ptr ref,bool right) {
+void catchActor(Ptr ref,bool right,Seen& state) {
     const auto victim=run(caughtActorScript,ref);
     if (victim.type!=2 || !victim.object) return;
     const auto type=field<unsigned char>(victim.object,4);
     if (type!=0x3b && type!=0x3c) return;
     // The seated and standing player camera stays under TTWVR control.
     Ptr idle=legReaction(victim.object,right);
-    auto result=run(injuryScript,victim.object,int(right),catchSpell,ref);
+    auto spell=victim.object==player() ? catchSpell : actorCatchSpell;
+    auto result=run(injuryScript,victim.object,int(right),spell,ref);
     const char* route="none";
     if (result.type==1 && result.number==0 && victim.object!=player() && root(victim.object)) {
+        state.heldActor=id(victim.object);
+        state.catchPosition=field<Vec>(victim.object,0x30);
         // FalloutNV 1.4.0.525 Actor::QueueReplacementLocomotions(force).
         // Recompute the native gait using this actor's skeleton and cripple flags.
         using RefreshGait=void (__thiscall *)(Ptr,bool);
@@ -242,6 +248,26 @@ void catchActor(Ptr ref,bool right) {
     std::snprintf(line,sizeof line,"bear_trap=caught ref=%08x actor=%08x leg=%s limb_after=%.1f reaction=%08x route=%s",
                   id(ref),id(victim.object),right?"right":"left",result.type==1?result.number:-1.,id(idle),route);
     writeLog(line);
+}
+// SpeedMult stops locomotion but an attack or recoil animation can still move
+// the character controller. Limit only horizontal travel at the point of impact.
+void keepAtJaws(Ptr trapRef,Seen& state) {
+    Ptr victim=lookup(state.heldActor);
+    if (!root(victim) || ptr(victim,0x40)!=ptr(trapRef,0x40)) {
+        state.heldActor=0;
+        return;
+    }
+    Vec p=field<Vec>(victim,0x30);
+    Vec delta=p-state.catchPosition;
+    float distance=std::hypot(delta.x,delta.y);
+    // Leave external teleports, falls and cell changes to the game.
+    if (!p.valid() || distance>100 || std::abs(delta.z)>55) {
+        state.heldActor=0;
+        return;
+    }
+    if (distance<=2) return;
+    Vec limit=state.catchPosition+delta*(1.f/distance);
+    run(holdPositionScript,victim,actorCatchSpell,int(std::lround(limit.x*16)),int(std::lround(limit.y*16)));
 }
 void scan(Ptr pc,double now) {
     if (run(grantScript,carrier,stockList).number==1)
@@ -364,7 +390,8 @@ bool initialize(Scripts* scripts,Arrays* arrayApi,void (*logger)(const char*)) {
     neutralFaction=lookup(prefix+0x832);
     if (field<unsigned char>(neutralFaction,4)!=8) return false;
     catchSpell=lookup(prefix+0x835);
-    if (field<unsigned char>(catchSpell,4)!=0x14) return false;
+    actorCatchSpell=lookup(prefix+0x836);
+    if (field<unsigned char>(catchSpell,4)!=0x14 || field<unsigned char>(actorCatchSpell,4)!=0x14) return false;
     carrier=lookup(prefix+0x830);
     if (field<unsigned char>(carrier,4)!=40) return false;
     stockList=lookup(prefix+0x833);
@@ -463,6 +490,39 @@ end)");
 begin Function {item}
  SetFunctionValue (item.GetRefVariable "trapVictim")
 end)");
+    // Query the native spell so menus, cell reloads and saved catches use game time.
+    heldVictimScript=api->compile(R"(ref item
+ref spell
+ref victim
+begin Function {item spell}
+ let victim := item.GetRefVariable "trapVictim"
+ if eval victim && !(victim.GetDead)
+  if eval victim.IsSpellTargetAlt spell
+   SetFunctionValue victim
+  endif
+ endif
+end)");
+    holdPositionScript=api->compile(R"(ref victim
+ref spell
+int fx
+int fy
+float px
+float py
+float pz
+begin Function {victim spell fx fy}
+ if eval !(victim.GetDead) && !(victim.GetKnockedState) && (victim.IsSpellTargetAlt spell)
+  let px := fx / 16.0
+  let py := fy / 16.0
+  let pz := victim.GetPos Z
+  victim.SetPosEx px py pz
+ endif
+end)");
+    releaseVictimScript=api->compile(R"(ref victim
+begin Function {victim}
+ if eval !(victim.GetDead) && !(victim.GetKnockedState)
+  victim.EvaluatePackage
+ endif
+end)");
     injuryScript=api->compile(R"(ref victim
 int rightLeg
 ref spell
@@ -490,7 +550,7 @@ begin Function {victim rightLeg spell trapRef}
 end)");
     creatureReactionScript=api->compile(creatureReactionSource);
     idleReactionScript=api->compile("ref victim\nref idleForm\nbegin Function {victim idleForm}\n victim.PlayIdleEx idleForm\nend");
-    if (!caughtActorScript || !injuryScript || !creatureReactionScript || !idleReactionScript) return false;
+    if (!caughtActorScript || !heldVictimScript || !holdPositionScript || !releaseVictimScript || !injuryScript || !creatureReactionScript || !idleReactionScript) return false;
     if (GetModuleHandleA("kNVSE.dll"))
         directReactionScript=api->compile(R"(ref victim
 ref idleForm
@@ -581,6 +641,7 @@ void frame(Ptr pc,double now,bool drawn) {
             }
             state.lastHeight=z;
         }
+        if (armed && state.heldActor) keepAtJaws(ref,state);
         if (armed && now>=state.due) {
             state.due=now+0.16;
             // TTW exempts the owner on trigger entry. Protect the setter while
@@ -597,12 +658,30 @@ void frame(Ptr pc,double now,bool drawn) {
                 bool manual=spent.number==1;
                 if (!manual && state.observedArmed && !state.recoverAt) {
                     // Keep the native activator through the jaw animation, sound,
-                    // and brief catch. A spent trap first seen on load only folds.
+                    // and give the timed catch its first engine update.
                     state.recoverAt=now+1.;
-                    if (spent.number>=3) catchActor(ref,spent.number==4);
+                    if (spent.number>=3) catchActor(ref,spent.number==4,state);
                     world::reportAt(pc,ref,pos,70);
                 }
                 if (now<state.recoverAt) continue;
+                if (spent.number>=3) {
+                    auto held=run(heldVictimScript,ref,actorCatchSpell);
+                    if (held.type==2 && held.object) {
+                        if (!state.observedArmed && root(held.object)) {
+                            state.heldActor=id(held.object);
+                            state.catchPosition=field<Vec>(held.object,0x30);
+                            state.observedArmed=true;
+                            // The native script has already applied this catch.
+                            state.recoverAt=now;
+                        }
+                        continue;
+                    }
+                }
+                if (state.heldActor) {
+                    Ptr victim=lookup(state.heldActor);
+                    if (root(victim)) run(releaseVictimScript,victim);
+                    state.heldActor=0;
+                }
                 int nextTier=manual ? tier : std::max(0,tier-2);
                 if (swap(ref,nextTier,false)) {
                     note(manual ? "recovered" : "sprung",key,nextTier);

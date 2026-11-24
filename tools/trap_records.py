@@ -53,10 +53,14 @@ def build():
     groups[b"MGEF"].append(record(b"MGEF", PLUGIN+0x834, [
         (b"EDID", string("TTWVRTrapCaughtSpeed")), (b"FULL", string("Caught in bear trap")),
         (b"DATA", bytes(effect))]))
-    groups[b"SPEL"].append(record(b"SPEL", PLUGIN+0x835, [
-        (b"EDID", string("TTWVRTrapBriefCatch")), (b"FULL", string("Caught in bear trap")),
-        (b"SPIT", bytes(16)), (b"EFID", u32(PLUGIN+0x834)),
-        (b"EFIT", struct.pack("<5I", 100, 0, 1, 0, speed_mult))]))
+    for form, name, magnitude, seconds in (
+        (0x835, "TTWVRTrapBriefCatch", 100, 1),
+        (0x836, "TTWVRTrapActorCatch", 1000, 4),
+    ):
+        groups[b"SPEL"].append(record(b"SPEL", PLUGIN+form, [
+            (b"EDID", string(name)), (b"FULL", string("Caught in bear trap")),
+            (b"SPIT", bytes(16)), (b"EFID", u32(PLUGIN+0x834)),
+            (b"EFIT", struct.pack("<5I", magnitude, 0, seconds, 0, speed_mult))]))
     bounds = struct.pack("<6h", -49, -32, -2, 49, 32, 16)
     # A stable, weightless hotkey represents the player's stock across condition tiers.
     held_model = string(r"TTWVRClutter\Held.nif")
