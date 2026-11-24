@@ -32,7 +32,7 @@ EyeHeightCm=55
 
 ## Optional ghoul hearing test
 
-Install the [Clutter Audio Test ZIP](https://github.com/ethanfel/TTWVR-Clutter-Distractions/releases/download/v0.2.7/TTWVR-Clutter-Audio-Test-0.2.7.zip) and enable both ESPs, with `TTWVRAudioLab.esp` last of the two. Load a quiet save and enter `coc TTWVRAudioLab` in the console. Flip the switch on the left. The ghouls start facing away, about twice the normal detection distance from the entrance. The second table has a clear view down the open aisle. Throw a can and watch where they investigate. You can walk closer for a shorter throw. An armed trap lies downrange on the right. Reloading a save resets the encounter.
+Install the [Clutter Audio Test ZIP](https://github.com/ethanfel/TTWVR-Clutter-Distractions/releases/download/v0.2.7/TTWVR-Clutter-Audio-Test-0.2.7.zip) and enable both ESPs, with `TTWVRAudioLab.esp` last of the two. Load a quiet save and enter `coc TTWVRAudioLab` in the console. You are invisible to the ghouls while in the room. Leaving restores your usual visibility. Flip the switch on the left. The ghouls start facing away, about twice the normal detection distance from the entrance. The second table has a clear view down the open aisle. Throw a can and watch where they investigate. You can walk closer for a shorter throw. An armed trap lies downrange on the right. Reloading a save resets the encounter.
 
 ## Build
 

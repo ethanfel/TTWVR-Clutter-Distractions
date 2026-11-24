@@ -25,6 +25,6 @@ begin Function {control actor}
  Call (CompileScript "TTWVRAudioLab/Release.txt") first home
  let home := GetFormFromMod "TTWVRAudioLab.esp" "817"
  Call (CompileScript "TTWVRAudioLab/Release.txt") second home
- player.SetGameMainLoopCallback (CompileScript "TTWVRAudioLab/Leave.txt") 1 1 1
+ player.SetGameMainLoopCallback (CompileScript "TTWVRAudioLab/Leave.txt") 1 4 1
  MessageEx "Hearing test active."
 end

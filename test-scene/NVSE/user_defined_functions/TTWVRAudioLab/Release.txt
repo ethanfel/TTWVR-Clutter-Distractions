@@ -2,6 +2,7 @@ ref subjectRef
 ref homeMarkerRef
 begin Function {subjectRef homeMarkerRef}
  subjectRef.MoveTo homeMarkerRef
+ Call (CompileScript "TTWVRAudioLab/Guard.txt") subjectRef
  subjectRef.Enable
  subjectRef.SetAngle Z 0
  if subjectRef.GetDead

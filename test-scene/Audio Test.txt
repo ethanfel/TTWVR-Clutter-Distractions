@@ -10,16 +10,17 @@ console, enter the following command, then close the console.
 
     coc TTWVRAudioLab
 
-The two ghouls start disabled. The switch on the left starts or stops
-the trial. They start about twice the normal indoor detection distance
-away, facing the far end. The center aisle is open from end to end.
+You are invisible in the test room, including before you start the trial.
+Leaving removes the test cloak. The switch on the left starts or stops
+the two ghouls. They start facing away, about twice the normal detection
+distance from the switch. You can walk the entire center aisle.
 If you played an earlier room, load a save from before your first visit.
 
 1. Flip the switch. The first table has cans, bottles, mugs and a tire iron
    for comparing a gentle set-down, a throw and a tap.
 2. Walk to the second table for a clear view of the ghouls. Throw a can
    down the aisle and watch whether they turn or move toward the landing.
-   You can walk closer for a shorter throw. They can see and hear you there.
+   You can walk closer for a shorter throw. The ghouls can still hear impacts.
 3. Test the arming click with the two folded traps at the entrance
    (Repair 55 by default). An armed trap lies downrange on the right.
 

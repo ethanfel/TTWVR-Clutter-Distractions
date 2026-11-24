@@ -1,7 +1,16 @@
 ref room
+ref first
+ref second
+ref guard
 begin Function {}
  let room := GetFormFromMod "TTWVRAudioLab.esp" "800"
  if eval (player.GetParentCell) != room
   Call (CompileScript "TTWVRAudioLab/Quiet.txt")
+  return
  endif
+ let first := GetFormFromMod "TTWVRAudioLab.esp" "814"
+ let second := GetFormFromMod "TTWVRAudioLab.esp" "815"
+ let guard := CompileScript "TTWVRAudioLab/Guard.txt"
+ Call guard first
+ Call guard second
 end

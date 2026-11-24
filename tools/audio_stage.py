@@ -140,9 +140,16 @@ def build():
         (b"XNAM", b"\0")])
     children = group(u32(CELL), 6, [group(u32(CELL), 8, permanent), group(u32(CELL), 9, temporary)])
     block = group(u32(8), 2, [group(u32(4), 3, [cell, children])])  # 0x800 = 2048
-    groups = [group(b"ACTI", 0, [panel]), group(b"NAVI", 0, [index]), group(b"CELL", 0, [block])]
+    # A separate ability lets us remove the lab's contribution without
+    # dispelling the player's Stealth Boy or changing their base actor values.
+    cloak = record(b"SPEL", OWN + 0x804, [
+        (b"EDID", string("TTWVRAudioLabCloak")), (b"FULL", string("Hearing range cloak")),
+        (b"SPIT", struct.pack("<4I", 4, 0, 0, 0)),
+        (b"EFID", u32(0x43E95)), (b"EFIT", struct.pack("<5I", 100, 0, 0, 0, 49)),
+        (b"EFID", u32(0x31D73)), (b"EFIT", struct.pack("<5I", 100, 0, 0, 0, 42))])
+    groups = [group(b"SPEL", 0, [cloak]), group(b"ACTI", 0, [panel]), group(b"NAVI", 0, [index]), group(b"CELL", 0, [block])]
     header = record(b"TES4", 0, [
-        (b"HEDR", struct.pack("<fII", 1.34, 3 + len(temporary) + len(permanent) + 8, next_id - OWN)),
+        (b"HEDR", struct.pack("<fII", 1.34, 4 + len(temporary) + len(permanent) + 9, next_id - OWN)),
         (b"CNAM", string("TTWVR Clutter Distractions")),
         (b"MAST", string("FalloutNV.esm")), (b"DATA", bytes(8)),
         (b"MAST", string(CORE + ".esp")), (b"DATA", bytes(8))])

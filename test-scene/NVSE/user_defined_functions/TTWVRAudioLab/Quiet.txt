@@ -6,10 +6,12 @@ begin Function {}
  if eval first && !(first.GetDisabled)
   first.StopCombat
   first.Disable
+  first.SetCombatDisabled 0
  endif
  if eval second && !(second.GetDisabled)
   second.StopCombat
   second.Disable
+  second.SetCombatDisabled 0
  endif
  player.SetGameMainLoopCallback (CompileScript "TTWVRAudioLab/Leave.txt") 0
 end

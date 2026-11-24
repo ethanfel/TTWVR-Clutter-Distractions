@@ -1,9 +1,16 @@
 ref panel
+ref room
+ref syncCloak
 begin Function {}
  let panel := GetFormFromMod "TTWVRAudioLab.esp" "811"
  if eval !panel
   return
  endif
+ let room := GetFormFromMod "TTWVRAudioLab.esp" "800"
+ let syncCloak := CompileScript "TTWVRAudioLab/Cloak.txt"
+ SetEventHandler "OnCellEnter" syncCloak "ref"::room
+ SetEventHandler "OnCellExit" syncCloak "ref"::room
+ Call syncCloak room
  SetEventHandler "OnActivate" (CompileScript "TTWVRAudioLab/Switch.txt") "ref"::panel
  Call (CompileScript "TTWVRAudioLab/Quiet.txt")
 end

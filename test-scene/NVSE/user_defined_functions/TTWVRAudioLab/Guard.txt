@@ -1,0 +1,12 @@
+ref ghoulRef
+float distance
+begin Function {ghoulRef}
+ let distance := ghoulRef.GetDistance player
+ if ghoulRef.GetCombatDisabled
+  if distance > 320
+   ghoulRef.SetCombatDisabled 0
+  endif
+ elseif distance < 240
+  ghoulRef.SetCombatDisabled 1
+ endif
+end

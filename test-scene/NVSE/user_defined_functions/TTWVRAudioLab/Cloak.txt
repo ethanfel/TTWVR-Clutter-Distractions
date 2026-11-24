@@ -1,0 +1,12 @@
+ref labCell
+ref cloak
+begin Function {labCell}
+ let cloak := GetFormFromMod "TTWVRAudioLab.esp" "804"
+ if eval (player.GetParentCell) == labCell
+  if eval !(player.IsSpellTargetAlt cloak)
+   player.AddSpell cloak
+  endif
+ else
+  player.RemoveSpell cloak
+ endif
+end
