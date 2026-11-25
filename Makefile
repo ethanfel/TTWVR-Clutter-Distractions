@@ -3,16 +3,16 @@ FLAGS := -std=c++17 -O2 -Wall -Wextra -Werror
 NAME := TTWVRClutterDistractions
 AUDIO := TTWVRClutterAudio
 TRAPS := TTWVRBearTraps
-VERSION := 0.3.0-split.1
-COMMON := src/Plugin.cpp src/Addon.h src/GameScript.h src/ControllerInput.h src/Impacts.h src/World.h
+VERSION := 0.3.0
+COMMON := Makefile src/Plugin.cpp src/Addon.h src/GameScript.h src/ControllerInput.h src/Impacts.h src/World.h
 .PHONY: all test package audio-stage
 all: build/$(AUDIO).dll build/$(TRAPS).dll build/$(NAME).esp
 build:
 	mkdir -p $@
 build/$(AUDIO).dll: $(COMMON) src/ClutterAudio.cpp src/ClutterInput.cpp src/ClutterInput.h src/ThrowMotion.h | build
-	$(WINCXX) $(FLAGS) -static -shared -s $(filter %.cpp,$^) -o $@
+	$(WINCXX) $(FLAGS) -DTTWVR_VERSION='"$(VERSION)"' -static -shared -s $(filter %.cpp,$^) -o $@
 build/$(TRAPS).dll: $(COMMON) src/BearTrapPlugin.cpp src/BearTraps.cpp src/TrapInput.cpp src/DeepCrouch.cpp src/LegPose.cpp src/Kneeling.h src/DeepCrouch.h src/BearTraps.h src/TrapInput.h src/ClutterInput.h src/TrapGesture.h src/TrapCondition.h src/TrapCarrier.h src/HandheldTrap.h src/TrapVisual.h | build
-	$(WINCXX) $(FLAGS) -static -shared -s $(filter %.cpp,$^) -o $@
+	$(WINCXX) $(FLAGS) -DTTWVR_VERSION='"$(VERSION)"' -static -shared -s $(filter %.cpp,$^) -o $@
 build/$(NAME).esp: tools/trap_records.py | build
 	python3 $< $@
 build/impacts: tests/Impacts.cpp src/Impacts.h src/ThrowMotion.h | build

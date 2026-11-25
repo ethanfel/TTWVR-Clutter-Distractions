@@ -8,6 +8,7 @@ def package(name, version, files):
     output = Path("build", f"{name}-{version}.zip")
     temp = output.with_suffix(".zip.tmp")
     with ZipFile(temp, "w", ZIP_DEFLATED) as archive:
+        archive.write("LICENSE", f"docs/{name}/LICENSE.txt")
         for source, member in files:
             archive.write(source, member)
     temp.replace(output)

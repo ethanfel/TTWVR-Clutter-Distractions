@@ -1,54 +1,51 @@
-# TTWVR Clutter Distractions
+# TTWVR Clutter Audio and Bear Traps
 
-Throw a can, bump loose clutter, or strike a held object to make nearby enemies investigate the sound. A portable bear trap also draws attention when it snaps.
+Two independent add-ons for Tale of Two Wastelands VR. Install either one or both.
+
+| Add-on | What it does | Download |
+| --- | --- | --- |
+| **Clutter Audio** | Throw a can, bump loose clutter, or tap a held object with a weapon. Nearby enemies can hear the impact where it happens. | [Clutter Audio 0.3.0](https://github.com/ethanfel/TTWVR-Clutter-Distractions/releases/download/v0.3.0/TTWVRClutterAudio-0.3.0.zip) |
+| **Bear Traps** | Carry a repairable trap in a holster, open it with your hands, and place it on the ground. | [Bear Traps 0.3.0](https://github.com/ethanfel/TTWVR-Clutter-Distractions/releases/download/v0.3.0/TTWVRBearTraps-0.3.0.zip) |
 
 ## Install
 
-Install either ZIP with your mod manager. Restart Fallout after changing the selection.
-
-- **TTWVRClutterAudio** handles throws, clutter impacts and NPC hearing. It needs only its DLL.
-- **TTWVRBearTraps** handles portable traps, the holster tool and deep crouch. Enable its included `TTWVRClutterDistractions.esp`. That filename and the trap form IDs are retained for existing saves.
-
-When switching from the combined release, disable the old combined mod and any override that supplies `TTWVRClutterDistractions.dll`. If you customized the trap settings, carry your `TTWVRClutterDistractions.ini` into the Bear Traps installation. For crash isolation, use a copy of the same save and restart between the baseline, audio-only, traps-only and combined runs. Each DLL writes its own log under `Data/NVSE/Plugins` (`TTWVRClutterAudio.log` or `TTWVRBearTraps.log`).
-
 Requires TTWVR 1.1.7, Fallout New Vegas 1.4.0.525, xNVSE 6.3+ and JIP LN NVSE.
 
-Release grip during your swing to throw a loose object in the direction your hand is moving. Open a still hand to drop it.
+1. Close Fallout. Install the ZIPs you want with your mod manager and enable them in your VR profile. For a manual install, extract each ZIP into `Fallout New Vegas/Data`.
+2. If you installed **Bear Traps**, enable **`TTWVRClutterDistractions.esp`**. Clutter Audio loads automatically through xNVSE.
+3. Start Fallout and load your save.
 
-## Portable bear trap
+**Upgrading from the combined mod or a test build?** Replace the older packages. Disable anything that still supplies `NVSE/Plugins/TTWVRClutterDistractions.dll`, including the old equip patch or bundled audio test room. Bear Traps keeps the original ESP and form IDs so existing traps and holster assignments carry over. Copy your customized `TTWVRClutterDistractions.ini` into the new Bear Traps mod if you changed its settings.
 
-- Craft **Portable Bear Trap** at a workbench with four scrap metal. It weighs **10**.
-- Once you carry a trap, open **Pip-Boy → Weapons** and assign **Portable Bear Trap (Place)** to a holster slot. This entry uses the traps in Misc. It adds no weight and keeps its slot when stock runs out.
-- Draw it using the holster’s grip. Lower the trap toward a surface and press the **trigger on the drawing hand** to release one closed trap. It falls from your hand and settles on the surface below. Releasing the grip before placement uses the usual TTWVR holster behavior. You can also drop a trap directly from Misc.
-- To open the trap in hand, draw it from its holster, grip the opposite rim with your free hand and pull it outward. You hear the jaws move as they open. Release early and they close. After the latch clicks, release your free hand and press the drawing-hand trigger to drop the open trap. It becomes active on landing. You can still arm a closed trap on the floor.
-- Tap the right stick down to crouch. Hold it down for **3 seconds** to reach the floor with your hands. Your knees bend and your feet stay under your body. From deep crouch, one tap returns to regular crouch and a second tap stands up.
-- With **Repair 55**, grip both sides of the closed trap and pull your hands apart until you hear the latch click. Hold both sides of an armed trap for a moment to disarm it, or activate it and choose **Disarm**. Once you step clear, returning to the trap can spring it. The game honors the Light Step perk.
-- When the jaws snap, the impact sounds at the trap. An enemy stays caught for four seconds and takes a crippled leg. An armed enemy stops firing for the full hold and can shoot again after release. Super mutants recoil on the caught side, including during attacks if kNVSE is installed. After release, the limp depends on the creature and stance. The player’s catch lasts one second.
-- After a catch, the folded trap stays where it snapped. Activate it to pick it back up. By default, each snap costs **10 condition points**, so a fresh trap lasts ten snaps. Disarming it costs nothing. At a workbench, one scrap metal restores 25 points, up to 100%. You can recover and repair a broken trap.
+## Clutter Audio
 
-Edit `Data/NVSE/Plugins/TTWVRClutterDistractions.ini` and restart Fallout to apply changes.
+Grab a loose object and release your grip during the swing to throw it. Open a still hand to drop it. You can also make noise by walking into loose clutter or striking an object in your hand.
 
-- `ConditionDegradationFactor` scales wear per snap. Use `0` for no wear, `0.5` for 5 points, `1` for 10, or `2` for 20. Condition uses 5-point steps, so the factor rounds to the nearest 0.5, up to 10.
-- `MinimumRepair` sets the Repair skill needed to arm a trap (0–100).
-- `HandheldArming=0` enables floor-only arming.
-- `EyeHeightCm` sets deep crouch height (30–120 cm). Use `0` for regular crouching only.
+## Bear Traps
 
-```ini
-[BearTrap]
-MinimumRepair=55
-ConditionDegradationFactor=1.0
-HandheldArming=1
+1. Craft a **Portable Bear Trap** at a workbench with four scrap metal. Each trap weighs 10.
+2. In **Pip-Boy → Weapons**, assign **Portable Bear Trap (Place)** to a holster. The tool draws from your trap stock in Misc.
+3. Draw the tool. Grip the opposite jaw with your free hand and pull until the latch clicks. Release the free hand, then press the drawing-hand trigger to drop the trap. It arms when it lands. You can also place a closed trap and pull its jaws apart on the ground. Arming requires **Repair 55** by default.
+4. To reach the floor, hold the right stick down for three seconds. From deep crouch, tap once for regular crouch and again to stand.
+5. To disarm, hold both sides for a moment or activate the trap and choose **Disarm**. After it springs, activate the folded trap to pick it up.
 
-[DeepCrouch]
-EyeHeightCm=55
-```
+A sprung trap holds an enemy for four seconds, interrupts firing, and injures a leg. The player is caught for one second. Each snap costs 10 condition points by default. Disarming costs nothing. One scrap metal restores 25 points at a workbench.
 
-## Optional ghoul hearing test
+### Trap settings
 
-For room testing, install the matching optional archive built by `make audio-stage` and enable both ESPs, with `TTWVRAudioLab.esp` last of the two. Load a quiet save and enter `coc TTWVRAudioLab` in the console. You are invisible to the ghouls while in the room. Leaving restores your usual visibility. Flip the switch on the left. The ghouls start facing away, about twice the normal detection distance from the entrance. The second table has a clear view down the open aisle. Throw a can and watch where they investigate. You can walk closer for a shorter throw. An armed trap lies downrange on the right. Reloading a save resets the encounter.
+Edit `Data/NVSE/Plugins/TTWVRClutterDistractions.ini` and restart Fallout.
 
-## Build
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `MinimumRepair` | `55` | Repair skill required to arm a trap, from 0 to 100. |
+| `HandheldArming` | `1` | Set to 0 to arm traps only on the ground. |
+| `ConditionDegradationFactor` | `1.0` | Wear per snap. 0 disables wear, 0.5 costs 5 points, and 2 costs 20. The factor rounds to the nearest 0.5 up to 10. |
+| `EyeHeightCm` | `55` | Deep crouch eye height, from 30 to 120 cm. Set to 0 to disable deep crouch. |
 
-Run `make package` with GNU Make, Python 3, an i686 MinGW-w64 C++17 compiler and native g++ with 32-bit multilib support. The portable meshes use a fixed closed pose derived from Fallout’s bear trap. The original game supplies their textures and the animated armed model. To regenerate the portable meshes, run `tools/portable_mesh.py` with PyFFI, the extracted vanilla `BearTrap01.nif`, `TinCan01.nif`, and `assets/meshes/TTWVRClutter` as arguments. The two ZIPs are written to `build/`. Run `make audio-stage` for the optional all-in-one test ZIP.
+## Logs and source
 
-The addon code uses the [GNU General Public License v3.0 only](LICENSE). Fallout assets belong to their respective owners.
+Each add-on writes its own log in `Data/NVSE/Plugins` after loading a save. Look for `TTWVRClutterAudio.log` or `TTWVRBearTraps.log`.
+
+Build both release ZIPs with `make package`. This runs the tests and writes the archives to `build/`. It requires GNU Make, Python 3, i686 MinGW-w64 with C++17, and native g++ with 32-bit multilib. Developers can build the optional ghoul hearing room with `make audio-stage`. To regenerate the folded trap meshes, run `tools/portable_mesh.py` with PyFFI, the extracted vanilla `BearTrap01.nif`, `TinCan01.nif`, and the `assets/meshes/TTWVRClutter` output directory.
+
+The add-on code is licensed under [GPL-3.0-only](LICENSE). Fallout assets belong to their respective owners.
