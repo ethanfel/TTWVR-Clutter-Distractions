@@ -6,6 +6,7 @@
 #include "TrapGesture.h"
 #include "TrapInput.h"
 #include "TrapCarrier.h"
+#include "TrapCondition.h"
 #include "HandheldTrap.h"
 #include "TrapVisual.h"
 #include "World.h"
@@ -25,6 +26,7 @@ void *caughtActorScript,*injuryScript,*creatureReactionScript,*directReactionScr
 void *heldVictimScript,*holdPositionScript,*releaseVictimScript,*lowerGunScript;
 Ptr carrier,neutralFaction,stockList,catchSpell,actorCatchSpell;
 int repairRequired=55;
+int wearTiersPerSnap=2;
 bool handheldArming;
 void* jawSound;
 struct HeldTrap {
@@ -749,6 +751,9 @@ end)");
     constexpr char ini[]=".\\Data\\NVSE\\Plugins\\TTWVRClutterDistractions.ini";
     repairRequired=std::clamp(int(GetPrivateProfileIntA("BearTrap","MinimumRepair",55,ini)),0,100);
     handheldArming=GetPrivateProfileIntA("BearTrap","HandheldArming",1,ini)!=0;
+    char factor[64];
+    auto length=GetPrivateProfileStringA("BearTrap","ConditionDegradationFactor","1.0",factor,sizeof factor,ini);
+    wearTiersPerSnap=snapWearTiers(length<sizeof factor-1 ? factor : "");
     jawSound=api->compile(R"(ref item
 int latched
 begin Function {item latched}
@@ -764,8 +769,8 @@ end)");
     ready=true;
     if (handheldArming) logger("bear_trap handheld_arming=1");
     unsigned inputs=installInput();
-    char line[100]; std::snprintf(line,sizeof line,"bear_traps ready forms=%02x minimum_repair=%d controller_openxr=%u controller_openvr=%u",
-                                  prefix>>24,repairRequired,inputs&1,inputs>>1); logger(line);
+    char line[128]; std::snprintf(line,sizeof line,"bear_traps ready forms=%02x minimum_repair=%d controller_openxr=%u controller_openvr=%u wear_per_snap=%d",
+                                  prefix>>24,repairRequired,inputs&1,inputs>>1,wearTiersPerSnap*5); logger(line);
     std::snprintf(line,sizeof line,"deep_crouch available=%d eye_height_cm=%.0f",crouch::available(),deepHeight*100);
     logger(line);
     return true;
@@ -886,7 +891,7 @@ void frame(Ptr pc,double now,bool drawn) {
                     if (root(victim)) run(releaseVictimScript,victim);
                     state.heldActor=0;
                 }
-                int nextTier=manual ? tier : std::max(0,tier-2);
+                int nextTier=manual ? tier : std::max(0,tier-wearTiersPerSnap);
                 if (swap(ref,nextTier,false)) {
                     note(manual ? "recovered" : "sprung",key,nextTier);
                     if (selected==key) stop();

@@ -1,8 +1,17 @@
 #include "../src/TrapGesture.h"
+#include "../src/TrapCondition.h"
 #include "../src/HandheldTrap.h"
 #include <cassert>
 using namespace trap;
 int main() {
+    assert(snapWearTiers("0") == 0);
+    assert(snapWearTiers(" 0.5\t") == 1);
+    assert(snapWearTiers("1.0") == 2);
+    assert(snapWearTiers("1.25") == 3);
+    assert(snapWearTiers("2") == 4);
+    assert(snapWearTiers("-1") == 0 && snapWearTiers("100") == 20);
+    for (auto invalid : {"", " ", "abc", "0.5x", "NaN", "inf"})
+        assert(snapWearTiers(invalid) == 2);
     for (int side : {-1,1}) {
         HandOpening opening;
         opening.side=side; opening.end=-side;
