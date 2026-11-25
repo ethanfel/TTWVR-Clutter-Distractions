@@ -1,7 +1,7 @@
-TTWVR Clutter Distractions 0.2.10 — Ghoul hearing test
+TTWVR Clutter Distractions 0.2.11 — Ghoul hearing test
 
 Install this ZIP as a mod in your Windows TTWVR profile. It includes Clutter
-Distractions 0.2.10 and the test room. Enable TTWVRClutterDistractions.esp
+Distractions 0.2.11 and the test room. Enable TTWVRClutterDistractions.esp
 and TTWVRAudioLab.esp, with the audio lab after Clutter Distractions.
 Use TTWVR 1.1.7, xNVSE and JIP LN. Restart the game.
 
@@ -21,7 +21,7 @@ If you played an earlier room, load a save from before your first visit.
 2. Walk to the second table for a clear view of the ghouls. Throw a can
    down the aisle and watch whether they turn or move toward the landing.
    You can walk closer for a shorter throw. The ghouls can still hear impacts.
-3. Test the arming click with the two folded traps at the entrance
+3. Test the opening sound and latch click with the two traps at the entrance
    (Repair 55 by default). An armed trap lies downrange on the right.
 
 Load your pre-test save to return to your game. To remove the room, disable

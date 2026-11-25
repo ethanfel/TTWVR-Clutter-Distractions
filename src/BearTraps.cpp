@@ -26,12 +26,12 @@ void *heldVictimScript,*holdPositionScript,*releaseVictimScript,*lowerGunScript;
 Ptr carrier,neutralFaction,stockList,catchSpell,actorCatchSpell;
 int repairRequired=55;
 bool handheldArming;
-void* latchSound;
+void* jawSound;
 struct HeldTrap {
     Ptr mesh{};
     int hand=-1, pulseStep=0;
     unsigned stock=0;
-    bool consumingGrip=false;
+    bool consumingGrip=false, pullSounded=false;
     float lastSpread=-1;
     double lastFrame=0;
     Vec gripOrigin{};
@@ -111,6 +111,20 @@ begin Function {oldTrap newItem makeArmed minimumRepair}
  if makeArmed
   let ownerForm := player.GetBaseObject
   replacement.SetOwnership ownerForm
+ else
+  ; The sprung activator already rests on a support. A fresh dynamic pickup
+  ; at its centre can collide with the departing actor before the next frame.
+  replacement.AuxVarSetFlt "_TTWVRClutterPlaced" 3
+  replacement.AuxVarSetFlt "_TTWVRClutterPlaced" px 1
+  replacement.AuxVarSetFlt "_TTWVRClutterPlaced" py 2
+  replacement.AuxVarSetFlt "_TTWVRClutterPlaced" pz 3
+  if eval !(replacement.AuxVarSetFlt "_TTWVRClutterPlaced" yaw 4)
+   replacement.Disable
+   replacement.MarkForDelete
+   return
+  endif
+  replacement.SetCollProp "TTWVRPortableTrap" 8 5
+  replacement.SetPosEx px py pz
  endif
  if eval makeArmed && stack > 1
   let stack -= 1
@@ -188,13 +202,20 @@ void stop() {
 Ptr swap(Ptr ref,int nextTier,bool armed) {
     auto form=lookup(prefix+tierForm(nextTier,armed));
     if (!form) return nullptr;
+    unsigned source=id(ref);
     auto result=run(swapScript,ref,form,int(armed),repairRequired);
     if (result.type!=2 || !result.object) return nullptr;
     auto& created=nearby[id(result.object)];
     created={};
     created.observedArmed=armed;
     created.latchPending=armed;
-    if (!armed) run(bodyScript,result.object,2);
+    if (!armed) {
+        Vec pos=field<Vec>(result.object,0x30);
+        char line[160];
+        std::snprintf(line,sizeof line,"bear_trap=folded_pickup ref=%08x source=%08x condition=%d pos=%.2f,%.2f,%.2f",
+                      id(result.object),source,nextTier*5,pos.x,pos.y,pos.z);
+        writeLog(line);
+    }
     return result.object;
 }
 // Each shipped creature rig below has consecutive left/right leg-hit IDLE forms.
@@ -369,6 +390,7 @@ void openInHand(Ptr mesh,int hand,const Vec (&palms)[2],unsigned down,unsigned p
                 held.stock=id(stock.object);
                 note("gripped_handheld_jaw",held.stock,tier);
                 jaw.grab(other);
+                held.pullSounded=false;
                 jawPulse(.21f,false);
             }
         }
@@ -377,9 +399,14 @@ void openInHand(Ptr mesh,int hand,const Vec (&palms)[2],unsigned down,unsigned p
     float dt=std::clamp(float(now-held.lastFrame),0.f,.1f);
     held.lastFrame=now;
     jaw.update(other,valid==3 && (down&freeGrip),dt);
+    if (!held.pullSounded && (jaw.pulling || (jaw.latched && !wasLatched)) &&
+        (jaw.contact.y-other.y)*jaw.side>=4.f) {
+        run(jawSound,player(),0);
+        held.pullSounded=true;
+    }
     if (jaw.latched && !wasLatched) {
         jawPulse(.9f,true);
-        run(latchSound);
+        run(jawSound,player(),1);
         note("latched_in_hand",held.stock,stockTier(held.stock&0xffffff));
     } else {
         int step=int(jaw.spread*7);
@@ -440,6 +467,11 @@ void interact(Ptr ref,int tier,bool armed,const Vec (&palms)[2],unsigned gripsNo
     Vec local[]{pose.local(palms[0]),pose.local(palms[1])};
     unsigned key=id(ref);
     Action action=gesture.step(local,gripsNow,pressed,armed,now);
+    if (!armed && gesture.paired && !gesture.pullSounded && action!=Action::cancel &&
+        gesture.sign*(local[1].y-local[0].y)>=gesture.separation+3.f) {
+        run(jawSound,ref,0);
+        gesture.pullSounded=true;
+    }
     if (!armed && !holdingBody && (gesture.paired || gesture.hand>=0)) {
         run(bodyScript,ref,1);
         holdingBody=true;
@@ -494,6 +526,10 @@ bool initialize(Scripts* scripts,Arrays* arrayApi,void (*logger)(const char*)) {
     // Restore box motion when released or reloaded, including old hovering saves.
     bodyScript=api->compile(R"(ref item
 int hold
+float x
+float y
+float z
+float yaw
 begin Function {item hold}
  if hold == 2
   item.AuxVarSetFlt "_TTWVRClutterPlaced" 1
@@ -501,6 +537,18 @@ begin Function {item hold}
  elseif hold == 1
   item.AuxVarSetFlt "_TTWVRClutterPlaced" 1
   item.SetCollProp "TTWVRPortableTrap" 8 5
+ elseif eval (item.AuxVarGetFlt "_TTWVRClutterPlaced") == 3
+  ; PlaceAtCell can return before Havok has built the pickup's first body.
+  ; Reapply its supported transform when the 3D loads, including after a save.
+  let x := item.AuxVarGetFlt "_TTWVRClutterPlaced" 1
+  let y := item.AuxVarGetFlt "_TTWVRClutterPlaced" 2
+  let z := item.AuxVarGetFlt "_TTWVRClutterPlaced" 3
+  let yaw := item.AuxVarGetFlt "_TTWVRClutterPlaced" 4
+  item.SetCollProp "TTWVRPortableTrap" 8 5
+  item.SetAngle X 0
+  item.SetAngle Y 0
+  item.SetAngle Z yaw
+  item.SetPosEx x y z
  elseif eval (item.GetCollProp "TTWVRPortableTrap" 8) == 5
   item.SetCollProp "TTWVRPortableTrap" 8 3
   item.SetLinearVelocity "TTWVRPortableTrap" 0 0 0
@@ -700,11 +748,17 @@ end)");
     }
     constexpr char ini[]=".\\Data\\NVSE\\Plugins\\TTWVRClutterDistractions.ini";
     repairRequired=std::clamp(int(GetPrivateProfileIntA("BearTrap","MinimumRepair",55,ini)),0,100);
-    handheldArming=GetPrivateProfileIntA("BearTrap","HandheldArming",0,ini)!=0;
-    if (handheldArming) {
-        latchSound=api->compile("begin Function {}\n player.PlaySound3D TRPPressurePlate\nend");
-        if (!latchSound) handheldArming=false;
-    }
+    handheldArming=GetPrivateProfileIntA("BearTrap","HandheldArming",1,ini)!=0;
+    jawSound=api->compile(R"(ref item
+int latched
+begin Function {item latched}
+ if latched
+  item.PlaySound3DNode TRPPressurePlate "JawFront01"
+ else
+  item.PlaySound3DNode TRPBearOpen "JawFront01"
+ endif
+end)");
+    if (!jawSound) return false;
     int cm=int(GetPrivateProfileIntA("DeepCrouch","EyeHeightCm",55,ini));
     deepHeight=cm>0 ? std::clamp(cm,30,120)*0.01f : 0.f;
     ready=true;
@@ -755,7 +809,7 @@ void frame(Ptr pc,double now,bool drawn) {
             state.root=node;
             if (!armed) {
                 auto placed=run(bodyScript,ref,0);
-                state.settling=placed.number>=1;
+                state.settling=placed.number==1 || placed.number==2;
                 state.armedOnLanding=placed.number==2;
                 if (state.armedOnLanding) poseTrap(named(node,"TrapCarryMesh"),1);
                 state.lastHeight=1e9f;

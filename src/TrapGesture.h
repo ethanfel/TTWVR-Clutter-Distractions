@@ -13,7 +13,7 @@ inline bool withinReach(Vec p, bool armed) {
 }
 struct Gesture {
     int hand=-1, sign=0;
-    bool paired=false, carried=false;
+    bool paired=false, carried=false, pullSounded=false;
     double began=0;
     float separation=0;
     Action step(const Vec (&points)[2], unsigned grips, unsigned pressed, bool armed, double now) {
