@@ -20,7 +20,7 @@ void *scanScript,*swapScript,*positionScript,*openTrapScript,*spentScript,*skill
 unsigned prefix, previousTriggers=3;
 void *grantScript,*deployScript,*stockScript,*emptyScript,*bodyScript,*ownerScript,*floorScript;
 void *caughtActorScript,*injuryScript,*creatureReactionScript,*directReactionScript,*idleReactionScript;
-void *heldVictimScript,*holdPositionScript,*releaseVictimScript;
+void *heldVictimScript,*holdPositionScript,*releaseVictimScript,*lowerGunScript;
 Ptr carrier,neutralFaction,stockList,catchSpell,actorCatchSpell;
 int repairRequired=55;
 float deepHeight;
@@ -227,7 +227,8 @@ void catchActor(Ptr ref,bool right,Seen& state) {
     auto spell=victim.object==player() ? catchSpell : actorCatchSpell;
     auto result=run(injuryScript,victim.object,int(right),spell,ref);
     const char* route="none";
-    if (result.type==1 && result.number==0 && victim.object!=player() && root(victim.object)) {
+    if (victim.object!=player() && root(victim.object) && result.type==1 && result.number>=0) {
+        run(lowerGunScript,victim.object,spell);
         state.heldActor=id(victim.object);
         state.catchPosition=field<Vec>(victim.object,0x30);
         // FalloutNV 1.4.0.525 Actor::QueueReplacementLocomotions(force).
@@ -257,6 +258,7 @@ void keepAtJaws(Ptr trapRef,Seen& state) {
         state.heldActor=0;
         return;
     }
+    run(lowerGunScript,victim,actorCatchSpell);
     Vec p=field<Vec>(victim,0x30);
     Vec delta=p-state.catchPosition;
     float distance=std::hypot(delta.x,delta.y);
@@ -504,6 +506,24 @@ begin Function {item spell}
   endif
  endif
 end)");
+    // Lower the equipped firearm whenever combat AI draws it during the catch.
+    // The native spell owns the four-second window, including across loads.
+    lowerGunScript=api->compile(R"(ref victim
+ref spell
+ref gun
+int kind
+begin Function {victim spell}
+ if eval victim != player && victim.IsWeaponOut && !(victim.GetDead) && (victim.IsSpellTargetAlt spell)
+  let gun := victim.GetEquippedWeapon
+  if gun
+   let kind := GetWeaponType gun
+   if eval kind >= 3 && kind <= 9
+    victim.SetWeaponOut 0
+    victim.HolsterWeapon
+   endif
+  endif
+ endif
+end)");
     holdPositionScript=api->compile(R"(ref victim
 ref spell
 int fx
@@ -552,7 +572,7 @@ begin Function {victim rightLeg spell trapRef}
 end)");
     creatureReactionScript=api->compile(creatureReactionSource);
     idleReactionScript=api->compile("ref victim\nref idleForm\nbegin Function {victim idleForm}\n victim.PlayIdleEx idleForm\nend");
-    if (!caughtActorScript || !heldVictimScript || !holdPositionScript || !releaseVictimScript || !injuryScript || !creatureReactionScript || !idleReactionScript) return false;
+    if (!lowerGunScript || !caughtActorScript || !heldVictimScript || !holdPositionScript || !releaseVictimScript || !injuryScript || !creatureReactionScript || !idleReactionScript) return false;
     if (GetModuleHandleA("kNVSE.dll"))
         directReactionScript=api->compile(R"(ref victim
 ref idleForm
