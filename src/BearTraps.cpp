@@ -6,6 +6,8 @@
 #include "TrapGesture.h"
 #include "TrapInput.h"
 #include "TrapCarrier.h"
+#include "HandheldTrap.h"
+#include "TrapVisual.h"
 #include "World.h"
 #include <cstdio>
 #include <map>
@@ -23,12 +25,24 @@ void *caughtActorScript,*injuryScript,*creatureReactionScript,*directReactionScr
 void *heldVictimScript,*holdPositionScript,*releaseVictimScript,*lowerGunScript;
 Ptr carrier,neutralFaction,stockList,catchSpell,actorCatchSpell;
 int repairRequired=55;
+bool handheldArming;
+void* latchSound;
+struct HeldTrap {
+    Ptr mesh{};
+    int hand=-1, pulseStep=0;
+    unsigned stock=0;
+    bool consumingGrip=false;
+    float lastSpread=-1;
+    double lastFrame=0;
+    Vec gripOrigin{};
+    HandOpening jaws;
+} held;
 float deepHeight;
 bool ready, blockOnWorldEntry;
 void* allowActivate;
 struct Seen {
     Ptr root{};
-    bool observedArmed=false, ownerReady=false, settling=false, latchPending=false;
+    bool observedArmed=false, ownerReady=false, settling=false, latchPending=false, armedOnLanding=false;
     double due=0, recoverAt=0;
     unsigned heldActor=0;
     Vec catchPosition{};
@@ -80,7 +94,7 @@ begin Function {oldTrap newItem makeArmed minimumRepair}
  if eval !oldTrap || !newItem || oldTrap.GetDisabled
   return
  endif
- if eval makeArmed && (player.GetAV Repair) < minimumRepair
+ if eval makeArmed && (player.GetAV Repair) < minimumRepair && (oldTrap.AuxVarGetFlt "_TTWVRClutterPlaced") != 2
   return
  endif
  let parent := oldTrap.GetParentCell
@@ -313,34 +327,111 @@ bool hands(Ptr pc,Vec (&out)[2]) {
     }
     return true;
 }
-// TTWVR moves the Weapon node to the drawing hand. Read the actual mesh
-// center for placement and use only the trigger beside its grip.
-void useCarrier(Ptr pc,unsigned valid,bool drawn) {
+void resetCarrier(Ptr pc) {
+    captureJawGrip(0);
+    if (held.mesh && named(named(root(pc),"Weapon"),"TrapCarryMesh")==held.mesh) {
+        const Vec original{39,0,0};
+        setCarryBasis(held.mesh,false);
+        poseTrap(held.mesh,0,&original);
+    }
+    held={};
+}
+void openInHand(Ptr mesh,int hand,const Vec (&palms)[2],unsigned down,unsigned pressed,
+                unsigned valid,double now) {
+    auto frame=field<Pose>(ptr(mesh,0x18),0x68);
+    if (frame.scale<=0.001f || !std::isfinite(frame.scale)) return;
+    auto primary=frame.local(palms[hand]);
+    Vec other=intoJawFrame(frame.local(palms[1-hand])-primary);
+    if (held.mesh!=mesh || held.hand!=hand) {
+        held={};
+        held.hand=hand; held.mesh=mesh; held.gripOrigin=primary;
+        setCarryBasis(mesh,true);
+        held.jaws.side=other.y>=0 ? -1 : 1;
+        held.jaws.end=other.x>=0 ? -1 : 1;
+    }
+    auto& jaw=held.jaws;
+    unsigned freeGrip=1u<<(1-hand);
+    // The host otherwise snaps the off hand onto a weapon support point.
+    // Reserve only this grip at the rim; keep the raw squeeze for the gesture.
+    bool atRim=valid==3 && !jaw.latched && jaw.inReach(other) && !heldObject(1-hand);
+    if (!(down&freeGrip) || valid!=3) held.consumingGrip=false;
+    if (atRim && (pressed&freeGrip)) held.consumingGrip=true;
+    captureJawGrip((held.consumingGrip || (atRim && !(down&freeGrip))) ? freeGrip : 0);
+    if (!jaw.latched && !jaw.pulling && atRim && (pressed&freeGrip)) {
+        auto stock=run(stockScript,stockList);
+        auto skill=run(skillScript);
+        if (stock.type!=2 || !stock.object) run(emptyScript);
+        else {
+            int tier=stockTier(id(stock.object)&0xffffff);
+            if (tier<=0 || skill.type!=1 || skill.number<repairRequired)
+                run(noticeScript,int(tier<=0),repairRequired);
+            else {
+                held.stock=id(stock.object);
+                note("gripped_handheld_jaw",held.stock,tier);
+                jaw.grab(other);
+                jawPulse(.21f,false);
+            }
+        }
+    }
+    bool wasLatched=jaw.latched;
+    float dt=std::clamp(float(now-held.lastFrame),0.f,.1f);
+    held.lastFrame=now;
+    jaw.update(other,valid==3 && (down&freeGrip),dt);
+    if (jaw.latched && !wasLatched) {
+        jawPulse(.9f,true);
+        run(latchSound);
+        note("latched_in_hand",held.stock,stockTier(held.stock&0xffffff));
+    } else {
+        int step=int(jaw.spread*7);
+        if (jaw.pulling && step>held.pulseStep) jawPulse(.22f+.48f*jaw.spread,false);
+        held.pulseStep=step;
+    }
+    if (held.lastSpread!=jaw.spread) {
+        Vec origin=held.gripOrigin-intoGripFrame(jawGrip(jaw.side,jaw.end,jaw.spread));
+        poseTrap(mesh,jaw.spread,&origin);
+        held.lastSpread=jaw.spread;
+    }
+}
+// TTWVR moves the Weapon node to the drawing hand and owns reholstering.
+void useCarrier(Ptr pc,unsigned valid,unsigned down,unsigned gripPressed,bool drawn,double now) {
     unsigned buttons=triggers();
     unsigned pressed=buttons & ~previousTriggers & valid;
     previousTriggers=buttons | (3u & ~valid);
-    if (!drawn || !pressed) return;
+    if (!handheldArming && !pressed) return;
     Ptr process=ptr(pc,0x68);
-    if (!process || field<unsigned char>(process,0x28)>1 || ptr(ptr(process,0x114),8)!=carrier) return;
-    Ptr rig=root(pc);
-    Ptr mount=named(rig,"Weapon");
-    Ptr base=named(mount,"Base:0");
+    if (!drawn || !process || field<unsigned char>(process,0x28)>1 || ptr(ptr(process,0x114),8)!=carrier) {
+        if (held.mesh) resetCarrier(pc);
+        return;
+    }
+    Ptr mount=named(root(pc),"Weapon");
+    Ptr mesh=named(mount,"TrapCarryMesh");
+    Ptr base=named(mesh,"Base:0");
     Vec palms[2];
-    if (!mount || !base || !hands(pc,palms)) return;
+    if (!base || !valid || !hands(pc,palms)) { if (held.mesh) resetCarrier(pc); return; }
     auto grip=field<Pose>(mount,0x68).pos;
     float left=(palms[0]-grip).length(), right=(palms[1]-grip).length();
-    unsigned hand=right<left ? 1 : 0;
-    if (!(pressed & (1u<<hand)) || std::min(left,right)>24) return;
-    Value v=run(stockScript,stockList);
-    if (v.type!=2 || !v.object) { run(emptyScript); return; }
+    int hand=(held.mesh==mesh && held.hand>=0) ? held.hand : int(right<left);
+    if (!(valid&(1u<<hand)) || (palms[hand]-grip).length()>24) {
+        if (held.mesh) resetCarrier(pc);
+        return;
+    }
+    if (handheldArming) openInHand(mesh,hand,palms,down,gripPressed,valid,now);
+    if (!(pressed & (1u<<hand))) return;
+    bool latched=held.jaws.latched;
+    Ptr stock=latched ? lookup(held.stock) : nullptr;
+    if (!latched) { auto v=run(stockScript,stockList); if (v.type==2) stock=v.object; }
+    if (!stock) { run(emptyScript); return; }
     auto pos=field<Pose>(base,0x68).pos;
     if (!pos.valid() || (pos-field<Vec>(pc,0x30)).length()>260) return;
-    auto result=run(deployScript,carrier,v.object,int(std::lround(pos.x*16)),
-                    int(std::lround(pos.y*16)),int(std::lround(pos.z*16)));
+    Pose carried=field<Pose>(mesh,0x68);
+    int yaw16=int(std::lround(std::atan2(carried.rot[0][1],carried.rot[1][1])*916.73247f));
+    auto result=run(deployScript,carrier,stock,int(std::lround(pos.x*16)),
+                    int(std::lround(pos.y*16)),int(std::lround(pos.z*16)),int(latched),yaw16);
     if (result.type==2 && result.object) {
-        run(bodyScript,result.object,2);
+        if (!latched) run(bodyScript,result.object,2);
         nearby.try_emplace(id(result.object));
-        note("placed_from_holster",id(result.object),stockTier(id(v.object)&0xffffff));
+        note(latched ? "dropped_latched" : "placed_from_holster",id(result.object),stockTier(id(stock)&0xffffff));
+        resetCarrier(pc);
     }
 }
 void interact(Ptr ref,int tier,bool armed,const Vec (&palms)[2],unsigned gripsNow,unsigned pressed,double now) {
@@ -414,12 +505,18 @@ begin Function {item hold}
   item.SetCollProp "TTWVRPortableTrap" 8 3
   item.SetLinearVelocity "TTWVRPortableTrap" 0 0 0
  endif
+ ; Use the small-debris physics layer for the falling preview so it can
+ ; clear the player's body. The settled activator has its original collision.
+ if eval (item.AuxVarGetFlt "_TTWVRClutterPlaced") == 2
+  item.SetCollLayer "TTWVRPortableTrap" 19
+ endif
  SetFunctionValue (item.AuxVarGetFlt "_TTWVRClutterPlaced")
 end)");
     // The moving box settles under gravity first. Only park it when its visible
     // base reaches support. Releasing it from the hand starts gravity again.
     floorScript=api->compile(R"(ref item
 int depth16
+int openDrop
 float x
 float y
 float z
@@ -427,7 +524,7 @@ float lo
 float hi
 float hit
 array_var origin
-begin Function {item depth16}
+begin Function {item depth16 openDrop}
  let origin := item.GetNifBlockTranslation "TTWVRPortableTrap" 1
  if eval (ar_Size origin) != 3
   return
@@ -440,7 +537,16 @@ begin Function {item depth16}
  item.ToggleObjectCollision 0
  let hit := GetP2PRayCastRange x y hi x y lo 6
  item.ToggleObjectCollision 1
- if eval hit <= 0 || abs (z - lo - hit - depth16 / 16.0) > 3
+ if hit <= 0
+  return
+ endif
+ if openDrop
+  ; An end can be resting on a prop while the centre is above a lower point.
+  ; Accept support within the settled box and level the active model there.
+  if eval z - lo - hit < -2 || z - lo - hit > depth16 / 16.0 + 3
+   return
+  endif
+ elseif eval abs (z - lo - hit - depth16 / 16.0) > 3
   return
  endif
  item.SetCollProp "TTWVRPortableTrap" 8 5
@@ -594,9 +700,15 @@ end)");
     }
     constexpr char ini[]=".\\Data\\NVSE\\Plugins\\TTWVRClutterDistractions.ini";
     repairRequired=std::clamp(int(GetPrivateProfileIntA("BearTrap","MinimumRepair",55,ini)),0,100);
+    handheldArming=GetPrivateProfileIntA("BearTrap","HandheldArming",0,ini)!=0;
+    if (handheldArming) {
+        latchSound=api->compile("begin Function {}\n player.PlaySound3D TRPPressurePlate\nend");
+        if (!latchSound) handheldArming=false;
+    }
     int cm=int(GetPrivateProfileIntA("DeepCrouch","EyeHeightCm",55,ini));
     deepHeight=cm>0 ? std::clamp(cm,30,120)*0.01f : 0.f;
     ready=true;
+    if (handheldArming) logger("bear_trap handheld_arming=1");
     unsigned inputs=installInput();
     char line[100]; std::snprintf(line,sizeof line,"bear_traps ready forms=%02x minimum_repair=%d controller_openxr=%u controller_openvr=%u",
                                   prefix>>24,repairRequired,inputs&1,inputs>>1); logger(line);
@@ -605,6 +717,7 @@ end)");
     return true;
 }
 void interruptHands() {
+    resetCarrier(player());
     stop(); previousGrips=3; previousValid=0; previousTriggers=3;
 }
 void suspend() {
@@ -614,6 +727,7 @@ void suspend() {
 void reset() {
     crouch::suspend();
     blockOnWorldEntry=true;
+    held={}; captureJawGrip(0);
     stop(); nearby.clear(); nextScan=0; previousGrips=3; previousValid=0; previousTriggers=3;
 }
 void frame(Ptr pc,double now,bool drawn) {
@@ -630,7 +744,7 @@ void frame(Ptr pc,double now,bool drawn) {
     unsigned down=input<0 ? 0u : unsigned(input&3);
     unsigned pressed=down & ~previousGrips & previousValid & valid;
     previousGrips=down; previousValid=valid;
-    useCarrier(pc,valid,drawn);
+    useCarrier(pc,valid,down,pressed,drawn,now);
     bool canReach=false;
     for (auto& [key,state]:nearby) {
         Ptr ref=lookup(key); bool armed=false;
@@ -640,7 +754,10 @@ void frame(Ptr pc,double now,bool drawn) {
         if (state.root!=node) {
             state.root=node;
             if (!armed) {
-                state.settling=run(bodyScript,ref,0).number==1;
+                auto placed=run(bodyScript,ref,0);
+                state.settling=placed.number>=1;
+                state.armedOnLanding=placed.number==2;
+                if (state.armedOnLanding) poseTrap(named(node,"TrapCarryMesh"),1);
                 state.lastHeight=1e9f;
             }
             else {
@@ -648,7 +765,8 @@ void frame(Ptr pc,double now,bool drawn) {
                 state.latchPending=false;
             }
         }
-        if (!armed && state.settling && selected!=key && now>=state.due) {
+        if (!armed && state.settling && selected!=key && now>=state.due &&
+            !(state.armedOnLanding && (heldObject(0)==ref || heldObject(1)==ref || ptr(pc,0x638)==ref))) {
             state.due=now+0.12;
             Pose pose=field<Pose>(node,0x68);
             float z=pose.pos.z;
@@ -657,9 +775,19 @@ void frame(Ptr pc,double now,bool drawn) {
             float depth=pose.scale*(48.3f*std::abs(pose.rot[2][0])+7.7f*std::abs(pose.rot[2][1])+
                                     2.8f*std::abs(pose.rot[2][2]));
             if (std::abs(z-state.lastHeight)<0.5f && depth>0 && depth<100 &&
-                run(floorScript,ref,int(std::lround(depth*16))).number==1) {
-                state.settling=false;
-                note("landed",key,tier);
+                run(floorScript,ref,int(std::lround(depth*16)),int(state.armedOnLanding)).number==1) {
+                if (state.armedOnLanding) {
+                    if (move(ref,pose.pos,true)) {
+                        if (Ptr active=swap(ref,tier,true)) {
+                            nearby[id(active)].latchPending=false; // Already clicked in the hand.
+                            state.settling=false;
+                            note("armed_on_landing",id(active),tier);
+                        }
+                    }
+                } else {
+                    state.settling=false;
+                    note("landed",key,tier);
+                }
             }
             state.lastHeight=z;
         }
@@ -716,6 +844,7 @@ void frame(Ptr pc,double now,bool drawn) {
         auto delta=field<Vec>(pc,0x30)-field<Vec>(ref,0x30);
         if (delta.length()<210) canReach=true;
     }
+    if (held.mesh && held.jaws.pulling) { if (selected) stop(); return; }
     if (!canReach && !selected) return;
     Vec palms[2]{};
     if (!valid || (!down && !selected) || !hands(pc,palms)) {
@@ -736,7 +865,7 @@ void frame(Ptr pc,double now,bool drawn) {
     for (auto& [key,state]:nearby) {
         (void)state;
         Ptr ref=lookup(key); bool armed=false;
-        if (tierOf(ref,armed)<0 || !root(ref) || (armed && down!=3)) continue;
+        if (state.armedOnLanding || tierOf(ref,armed)<0 || !root(ref) || (armed && down!=3)) continue;
         Pose pose=field<Pose>(root(ref),0x68);
         if (!(pose.scale>0.001f)) continue;
         for (int h=0;h<2;++h) if (pressed & (1u<<h)) {

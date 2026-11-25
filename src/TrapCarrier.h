@@ -35,6 +35,8 @@ int fx
 int fy
 int fz
 int count
+int latched
+int yaw16
 float px
 float py
 float pz
@@ -42,7 +44,7 @@ float highZ
 float lowZ
 float hit
 float yaw
-begin Function {tool stock fx fy fz}
+begin Function {tool stock fx fy fz latched yaw16}
  if eval player.GetEquippedWeapon != tool || !player.IsWeaponOut
   return
  endif
@@ -64,7 +66,11 @@ begin Function {tool stock fx fy fz}
  if eval !item
   return
  endif
- let yaw := player.GetAngle Z + 90
+ if latched
+  let yaw := yaw16 / 16.0
+ else
+  let yaw := player.GetAngle Z + 90
+ endif
  item.SetAngle Z yaw
  item.SetPosEx px py pz
  player.RemoveItem stock 1 1
@@ -72,6 +78,9 @@ begin Function {tool stock fx fy fz}
   item.Disable
   item.MarkForDelete
   return
+ endif
+ if latched
+  item.AuxVarSetFlt "_TTWVRClutterPlaced" 2
  endif
  player.UnequipItem tool 0 1
  SetFunctionValue item

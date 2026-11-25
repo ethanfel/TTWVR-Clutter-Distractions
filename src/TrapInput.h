@@ -9,5 +9,7 @@ int grips();
 unsigned char* heldObject(int hand);
 bool handPoint(int hand,noise::Vec& point);
 unsigned triggers();
+void captureJawGrip(unsigned mask);
+void jawPulse(float strength, bool latch);
 crouch::Stick rightStick();
 }

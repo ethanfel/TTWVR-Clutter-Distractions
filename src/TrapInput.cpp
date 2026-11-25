@@ -12,9 +12,12 @@ namespace {
 std::atomic<DWORD> sample{};
 unsigned char* hostBase{};
 constexpr DWORD clockMask=0x00ffffffu;
+std::atomic<unsigned> pendingPulse{}, jawGripCapture{};
+using Pulse=void (__thiscall *)(void*,bool,float,float);
 using Poll=bool (__thiscall *)(void*, unsigned char*);
 template<int Backend> struct Input {
     static inline Poll next;
+    static inline Pulse pulse;
     static inline crouch::Hold hold;
     static inline crouch::Control control;
     static bool __fastcall poll(void* self, void*, unsigned char* frame) {
@@ -33,6 +36,19 @@ template<int Backend> struct Input {
         const bool hasActions=ok && frame && frame[0x12c];
         if (hasActions) std::memcpy(axes,frame+0x108,sizeof axes);
         DWORD now=GetTickCount();
+        unsigned request=pendingPulse.exchange(0,std::memory_order_relaxed);
+        if (pulse && hasActions && (bits&12)==12 && (request&255) &&
+            ((now-(request>>9))&0x7fffff)<120) {
+            float amplitude=float(request&255)/255.f;
+            float duration=(request&256) ? .095f : .030f;
+            for (int h=0;h<2;++h) pulse(self,h!=0,amplitude,duration);
+        }
+        auto capture=jawGripCapture.load(std::memory_order_relaxed);
+        if (hasActions && ((now-(capture>>2))&0x3fffffffu)<180) {
+            float released=0;
+            for (int h=0;h<2;++h) if (capture&(1u<<h))
+                std::memcpy(frame+0x118+4*h,&released,sizeof released);
+        }
         auto stick=hold.sample(hasActions,axes[0],axes[1],now);
         float filtered=crouch::filter(stick,axes[1],now,control);
         if (hasActions && filtered!=axes[1]) std::memcpy(frame+0x10c,&filtered,sizeof filtered);
@@ -42,6 +58,10 @@ template<int Backend> struct Input {
     static bool attach(unsigned char* host, unsigned rva) {
         auto slot=reinterpret_cast<void**>(host+rva)+6;
         void* before=*slot;
+        auto method=slot[28-6];
+        const unsigned entry=Backend==0 ? 0x3f0d : 0x22868;
+        const unsigned body=Backend==0 ? 0x6de400 : 0x6c9140;
+        if (method==host+entry || method==host+body) pulse=reinterpret_cast<Pulse>(method);
         MEMORY_BASIC_INFORMATION page{};
         if (!VirtualQuery(before,&page,sizeof page) || page.State!=MEM_COMMIT ||
             !(page.Protect&(PAGE_EXECUTE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE|PAGE_EXECUTE_WRITECOPY)))
@@ -85,6 +105,13 @@ bool handPoint(int hand,noise::Vec& point) {
 static DWORD latest() {
     DWORD value=sample.load(std::memory_order_relaxed);
     return ((GetTickCount()-(value>>8))&clockMask)<=250 ? value : 0;
+}
+void captureJawGrip(unsigned mask) {
+    jawGripCapture.store(mask ? (GetTickCount()<<2)|mask : 0,std::memory_order_relaxed);
+}
+void jawPulse(float strength,bool latch) {
+    pendingPulse.store((GetTickCount()<<9)|(latch?256u:0u)|
+        unsigned(std::clamp(strength,0.f,1.f)*255.f),std::memory_order_relaxed);
 }
 int grips() {
     DWORD value=latest();

@@ -17,6 +17,11 @@ for mesh in ("Portable.nif", "Held.nif"):
 temporary = output.with_suffix(".zip.tmp")
 with ZipFile(temporary, "w", ZIP_DEFLATED) as archive:
     for source, member in files.items():
-        archive.write(source, member)
+        if member.endswith(".ini") and "--handheld-test" in sys.argv[2:]:
+            config = source.read_text()
+            assert config.count("HandheldArming=0") == 1
+            archive.writestr(member, config.replace("HandheldArming=0", "HandheldArming=1"))
+        else:
+            archive.write(source, member)
 temporary.replace(output)
 print(output)
