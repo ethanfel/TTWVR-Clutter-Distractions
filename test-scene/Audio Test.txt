@@ -1,7 +1,7 @@
-TTWVR Clutter Distractions 0.2.12 — Ghoul hearing test
+TTWVR — Ghoul hearing test
 
-Install this ZIP as a mod in your Windows TTWVR profile. It includes Clutter
-Distractions 0.2.12 and the test room. Enable TTWVRClutterDistractions.esp
+Install this ZIP as a mod in your Windows TTWVR profile. It includes Clutter Audio,
+Bear Traps and the test room. Enable TTWVRClutterDistractions.esp
 and TTWVRAudioLab.esp, with the audio lab after Clutter Distractions.
 Use TTWVR 1.1.7, xNVSE and JIP LN. Restart the game.
 

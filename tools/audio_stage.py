@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Build the optional ghoul hearing room and its ready-to-install test ZIP."""
 import struct
+import sys
 from math import pi
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -11,7 +12,6 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
 CORE = "TTWVRClutterDistractions"
 STAGE = "TTWVRAudioLab"
-VERSION = "0.2.12"
 OWN = 0x02000000  # FalloutNV.esm, the clutter plug-in, then this plug-in
 CELL = OWN + 0x800
 MESH = OWN + 0x801
@@ -157,12 +157,14 @@ def build():
 
 
 if __name__ == "__main__":
-    output = BUILD / f"TTWVR-Clutter-Audio-Test-{VERSION}.zip"
-    with ZipFile(BUILD / f"{CORE}-{VERSION}.zip") as mod, ZipFile(output.with_suffix(".tmp"), "w", ZIP_DEFLATED) as archive:
-        for entry in mod.namelist():
-            # The DLL supplies its defaults. Preserve an existing user's test settings.
-            if not entry.lower().endswith(".ini"):
-                archive.writestr(entry, mod.read(entry))
+    version = sys.argv[1]
+    output = BUILD / f"TTWVR-Clutter-Audio-Test-{version}.zip"
+    with ZipFile(output.with_suffix(".tmp"), "w", ZIP_DEFLATED) as archive:
+        for addon in ("TTWVRClutterAudio", "TTWVRBearTraps"):
+            with ZipFile(BUILD / f"{addon}-{version}.zip") as mod:
+                for entry in mod.namelist():
+                    if not entry.lower().endswith(".ini"):
+                        archive.writestr(entry, mod.read(entry))
         archive.writestr(STAGE + ".esp", build())
         for path in sorted((ROOT / "test-scene").rglob("*")):
             if path.is_file():

@@ -5,6 +5,7 @@
 namespace trap {
 // A passive copy of TTWVR's grip buttons. Returns -1 for stale/missing tracking.
 unsigned installInput();
+bool inputAvailable();
 int grips();
 unsigned char* heldObject(int hand);
 bool handPoint(int hand,noise::Vec& point);
