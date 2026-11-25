@@ -5,10 +5,14 @@ namespace trap {
 // The zero-weight WEAP is the persistent hotkey, including while stock is empty.
 constexpr char grantCarrier[]=R"(ref tool
 ref stock
+int copies
 begin Function {tool stock}
- if eval !(player.GetItemCount tool) && (player.GetItemCount stock)
+ let copies := player.GetItemCount stock
+ if eval copies > 0 && !(player.GetItemCount tool)
   player.AddItem tool 1 1
-  SetFunctionValue 1
+  SetFunctionValue tool
+ else
+  SetFunctionValue copies
  endif
 end)";
 
@@ -82,7 +86,9 @@ begin Function {tool stock fx fy fz latched yaw16}
  if latched
   item.AuxVarSetFlt "_TTWVRClutterPlaced" 2
  endif
- player.UnequipItem tool 0 1
+ ; TTWVR owns the inventory equip for a holster draw. Sheathe the carrier
+ ; after placement without removing its equipped inventory instance.
+ player.HolsterWeapon
  SetFunctionValue item
 end)";
 }

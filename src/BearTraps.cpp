@@ -28,6 +28,9 @@ Ptr carrier,neutralFaction,stockList,catchSpell,actorCatchSpell;
 int repairRequired=55;
 int wearTiersPerSnap=2;
 bool handheldArming;
+bool carrierWasDrawn=false, placementSheathed=false;
+unsigned placementHand=0;
+int lastStockCount=-1;
 void* jawSound;
 struct HeldTrap {
     Ptr mesh{};
@@ -309,8 +312,14 @@ void keepAtJaws(Ptr trapRef,Seen& state) {
     run(holdPositionScript,victim,actorCatchSpell,int(std::lround(limit.x*16)),int(std::lround(limit.y*16)));
 }
 void scan(Ptr pc,double now) {
-    if (run(grantScript,carrier,stockList).number==1)
-        writeLog("bear_trap=holster_available");
+    auto inventory=run(grantScript,carrier,stockList);
+    if (inventory.type==2) writeLog("bear_trap=holster_available");
+    else if (inventory.type==1 && inventory.number!=lastStockCount) {
+        lastStockCount=int(inventory.number);
+        char line[64];
+        std::snprintf(line,sizeof line,"bear_trap=inventory stock=%d",lastStockCount);
+        writeLog(line);
+    }
     std::vector<unsigned> found;
     for (int type:{21,31}) {
         auto v=run(scanScript,type);
@@ -426,12 +435,24 @@ void useCarrier(Ptr pc,unsigned valid,unsigned down,unsigned gripPressed,bool dr
     unsigned buttons=triggers();
     unsigned pressed=buttons & ~previousTriggers & valid;
     previousTriggers=buttons | (3u & ~valid);
-    if (!handheldArming && !pressed) return;
     Ptr process=ptr(pc,0x68);
-    if (!drawn || !process || field<unsigned char>(process,0x28)>1 || ptr(ptr(process,0x114),8)!=carrier) {
+    bool carrying=drawn && process && field<unsigned char>(process,0x28)<=1 && ptr(ptr(process,0x114),8)==carrier;
+    if (carrying!=carrierWasDrawn) {
+        writeLog(carrying ? "bear_trap=carrier_drawn" : "bear_trap=carrier_put_away");
+        carrierWasDrawn=carrying;
+    }
+    // The host may briefly redraw an equipped tool while its grip is still held.
+    // Finish the previous handoff before accepting a second placement.
+    if (placementHand) {
+        if (!carrying) placementSheathed=true;
+        if (placementSheathed && (valid&placementHand) && !((down|buttons)&placementHand))
+            placementHand=0;
+    }
+    if (!carrying) {
         if (held.mesh) resetCarrier(pc);
         return;
     }
+    if (placementHand || (!handheldArming && !pressed)) return;
     Ptr mount=named(root(pc),"Weapon");
     Ptr mesh=named(mount,"TrapCarryMesh");
     Ptr base=named(mesh,"Base:0");
@@ -457,6 +478,8 @@ void useCarrier(Ptr pc,unsigned valid,unsigned down,unsigned gripPressed,bool dr
     auto result=run(deployScript,carrier,stock,int(std::lround(pos.x*16)),
                     int(std::lround(pos.y*16)),int(std::lround(pos.z*16)),int(latched),yaw16);
     if (result.type==2 && result.object) {
+        placementHand=1u<<hand;
+        placementSheathed=false;
         if (!latched) run(bodyScript,result.object,2);
         nearby.try_emplace(id(result.object));
         note(latched ? "dropped_latched" : "placed_from_holster",id(result.object),stockTier(id(stock)&0xffffff));
@@ -784,6 +807,7 @@ void suspend() {
     interruptHands();
 }
 void reset() {
+    placementHand=0; placementSheathed=false; carrierWasDrawn=false; lastStockCount=-1;
     crouch::suspend();
     blockOnWorldEntry=true;
     held={}; captureJawGrip(0);
