@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
+#include "HostLayout.h"
 #include <cmath>
 #include <cstdint>
 
@@ -89,7 +90,7 @@ struct Stance {
     }
 };
 
-void bind(unsigned char* host);
+void bind(controller::Host host);
 bool available();
 float filter(Stick stick,float y,std::uint32_t now,Control& control);
 void update(Stick stick,float height,double now,void (*log)(const char*));

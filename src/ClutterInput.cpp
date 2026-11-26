@@ -9,12 +9,12 @@
 
 namespace clutter {
 namespace {
-unsigned char* host;
+controller::Host host;
 std::atomic<DWORD> sample{};
 int (__cdecl* sharedGrips)();
 bool (__cdecl* portableTrap)(unsigned char*);
 void (*logInput)(const char*);
-template<unsigned Slot> struct PassiveInput {
+template<int BackendIndex> struct PassiveInput {
     static inline controller::Poll next;
     static bool __fastcall poll(void* self,void*,unsigned char* frame) {
         bool ok=next(self,frame);
@@ -22,14 +22,14 @@ template<unsigned Slot> struct PassiveInput {
         sample.store(((GetTickCount()&controller::clockMask)<<8)|bits,std::memory_order_relaxed);
         return ok;
     }
-    static bool attach() {
-        auto slot=reinterpret_cast<void**>(host+Slot)+6;
+    static bool attach(unsigned table) {
+        auto slot=reinterpret_cast<void**>(host.base+table)+6;
         return controller::attach(slot,next,reinterpret_cast<void*>(poll));
     }
 };
 void installPassive() {
-    bool xr=host && PassiveInput<0xaf3568>::attach();
-    bool vr=host && PassiveInput<0xaf36d0>::attach();
+    bool xr=host && PassiveInput<0>::attach(host.layout->xr.table);
+    bool vr=host && PassiveInput<1>::attach(host.layout->vr.table);
     char line[80];
     std::snprintf(line,sizeof line,"clutter_input=passive openxr=%d openvr=%d",xr,vr);
     logInput(line);

@@ -3,8 +3,8 @@ FLAGS := -std=c++17 -O2 -Wall -Wextra -Werror
 NAME := TTWVRClutterDistractions
 AUDIO := TTWVRClutterAudio
 TRAPS := TTWVRBearTraps
-VERSION := 0.3.0
-COMMON := Makefile src/Plugin.cpp src/Addon.h src/GameScript.h src/ControllerInput.h src/Impacts.h src/World.h
+VERSION := 1.1.8-r1
+COMMON := Makefile src/Plugin.cpp src/Addon.h src/GameScript.h src/ControllerInput.h src/HostLayout.h src/Impacts.h src/World.h
 .PHONY: all test package audio-stage
 all: build/$(AUDIO).dll build/$(TRAPS).dll build/$(NAME).esp
 build:
@@ -21,7 +21,7 @@ build/world-test: tests/World.cpp src/World.h src/Impacts.h | build
 	$(CXX) $(FLAGS) -m32 $< -o $@
 build/trap-test: tests/TrapGesture.cpp src/TrapGesture.h src/TrapCondition.h src/HandheldTrap.h src/Impacts.h | build
 	$(CXX) $(FLAGS) $< -o $@
-build/crouch-test: tests/DeepCrouch.cpp src/DeepCrouch.h src/Kneeling.h src/Impacts.h | build
+build/crouch-test: tests/DeepCrouch.cpp src/HostLayout.h src/DeepCrouch.h src/Kneeling.h src/Impacts.h | build
 	$(CXX) $(FLAGS) $< -o $@
 test: build/crouch-test build/impacts build/world-test build/trap-test build/$(NAME).esp
 	./build/crouch-test
@@ -34,3 +34,7 @@ package: all test config/$(NAME).ini assets/meshes/TTWVRClutter/Portable.nif ass
 
 audio-stage: package
 	python3 -B tools/audio_stage.py $(VERSION)
+
+# Run with Wine or on Windows: host-input.exe audio|traps /path/to/TTWVR.dll
+build/host-input.exe: tests/HostInput.cpp src/TrapInput.cpp src/ClutterInput.cpp src/DeepCrouch.cpp src/LegPose.cpp src/ControllerInput.h src/HostLayout.h src/DeepCrouch.h src/Kneeling.h src/TrapInput.h src/ClutterInput.h src/World.h src/Impacts.h | build
+	$(WINCXX) $(FLAGS) -Isrc -static -municode $(filter %.cpp,$^) -o $@

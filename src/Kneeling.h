@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
+#include "HostLayout.h"
 #include "Impacts.h"
 
 namespace crouch {
@@ -68,6 +69,6 @@ inline bool kneel(Vec hip,Vec knee,Vec ankle,Vec forward,float blend,Vec& newKne
     newKnee=hip+line*along+bend*std::sqrt(std::max(0.f,thigh*thigh-along*along));
     return true;
 }
-void bindLegPose(unsigned char* host);
+void bindLegPose(controller::Host host);
 void setKneelBlend(float value);
 }

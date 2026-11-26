@@ -4,12 +4,14 @@ Two independent add-ons for Tale of Two Wastelands VR. Install either one or bot
 
 | Add-on | What it does | Download |
 | --- | --- | --- |
-| **Clutter Audio** | Throw a can, bump loose clutter, or tap a held object with a weapon. Nearby enemies can hear the impact where it happens. | [Clutter Audio 0.3.0](https://github.com/ethanfel/TTWVR-Clutter-Distractions/releases/download/v0.3.0/TTWVRClutterAudio-0.3.0.zip) |
-| **Bear Traps** | Carry a repairable trap in a holster, open it with your hands, and place it on the ground. | [Bear Traps 0.3.0](https://github.com/ethanfel/TTWVR-Clutter-Distractions/releases/download/v0.3.0/TTWVRBearTraps-0.3.0.zip) |
+| **Clutter Audio** | Throw a can, bump loose clutter, or tap a held object with a weapon. Nearby enemies can hear the impact where it happens. | [Clutter Audio 1.1.8-r1](https://github.com/ethanfel/TTWVR-Clutter-Distractions/releases/download/v1.1.8-r1/TTWVRClutterAudio-1.1.8-r1.zip) |
+| **Bear Traps** | Carry a repairable trap in a holster, open it with your hands, and place it on the ground. | [Bear Traps 1.1.8-r1](https://github.com/ethanfel/TTWVR-Clutter-Distractions/releases/download/v1.1.8-r1/TTWVRBearTraps-1.1.8-r1.zip) |
 
 ## Install
 
-Requires TTWVR 1.1.7, Fallout New Vegas 1.4.0.525, xNVSE 6.3+ and JIP LN NVSE.
+Release names follow the TTWVR version and add-on revision. Both ZIPs in this release support TTWVR 1.1.8 and 1.1.7.
+
+Requires Fallout New Vegas 1.4.0.525, xNVSE 6.3+ and JIP LN NVSE.
 
 1. Close Fallout. Install the ZIPs you want with your mod manager and enable them in your VR profile. For a manual install, extract each ZIP into `Fallout New Vegas/Data`.
 2. If you installed **Bear Traps**, enable **`TTWVRClutterDistractions.esp`**. Clutter Audio loads automatically through xNVSE.

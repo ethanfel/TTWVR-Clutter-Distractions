@@ -11,7 +11,7 @@
 namespace trap {
 namespace {
 std::atomic<DWORD> sample{};
-unsigned char* hostBase{};
+controller::Host boundHost;
 using controller::clockMask;
 std::atomic<unsigned> pendingPulse{}, jawGripCapture{};
 using Pulse=void (__thiscall *)(void*,bool,float,float);
@@ -47,12 +47,10 @@ template<int Backend> struct Input {
         sample.store(((now & clockMask)<<8)|(unsigned(stick)<<4)|bits,std::memory_order_relaxed);
         return ok;
     }
-    static bool attach(unsigned char* host, unsigned rva) {
-        auto slot=reinterpret_cast<void**>(host+rva)+6;
+    static bool attach(unsigned char* host, const controller::Backend& backend) {
+        auto slot=reinterpret_cast<void**>(host+backend.table)+6;
         auto method=slot[28-6];
-        const unsigned entry=Backend==0 ? 0x3f0d : 0x22868;
-        const unsigned body=Backend==0 ? 0x6de400 : 0x6c9140;
-        if (method==host+entry || method==host+body) pulse=reinterpret_cast<Pulse>(method);
+        if (method==host+backend.pulseEntry || method==host+backend.pulseBody) pulse=reinterpret_cast<Pulse>(method);
         return controller::attach(slot,next,reinterpret_cast<void*>(poll));
     }
 };
@@ -60,14 +58,14 @@ template<int Backend> struct Input {
 unsigned installInput() {
     auto host=controller::host();
     if (!host) return 0;
-    unsigned backends=Input<0>::attach(host,0xaf3568)?1u:0u;
-    if (Input<1>::attach(host,0xaf36d0)) backends|=2;
-    if (backends) { hostBase=host; crouch::bind(host); }
+    unsigned backends=Input<0>::attach(host.base,host.layout->xr)?1u:0u;
+    if (Input<1>::attach(host.base,host.layout->vr)) backends|=2;
+    if (backends) { boundHost=host; crouch::bind(host); }
     return backends;
 }
-bool inputAvailable() { return hostBase!=nullptr; }
-unsigned char* heldObject(int hand) { return controller::heldObject(hostBase,hand); }
-bool handPoint(int hand,noise::Vec& point) { return controller::handPoint(hostBase,hand,point); }
+bool inputAvailable() { return bool(boundHost); }
+unsigned char* heldObject(int hand) { return controller::heldObject(boundHost,hand); }
+bool handPoint(int hand,noise::Vec& point) { return controller::handPoint(boundHost,hand,point); }
 static DWORD latest() {
     DWORD value=sample.load(std::memory_order_relaxed);
     return ((GetTickCount()-(value>>8))&clockMask)<=250 ? value : 0;

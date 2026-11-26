@@ -84,14 +84,14 @@ void __cdecl message(Message* msg) {
         getMode=addon::scripts->compile("int menu\nbegin Function {}\n let menu := GetActiveMenuMode\n if eval (menu == 0 || menu == 1004) && player.GetDead == 0\n  SetFunctionValue (1 + player.IsWeaponOut)\n endif\nend");
         ready=getMode && addon::initialize();
         if (ready) addon::reset();
-        addon::log(ready ? "ready version=" TTWVR_VERSION " build=16" : "inactive: initialization failed");
+        addon::log(ready ? "ready version=" TTWVR_VERSION " build=17" : "inactive: initialization failed");
     }
     if (ready) tick();
 }
 }
 extern "C" __declspec(dllexport) bool NVSEPlugin_Query(const NVSE* n,Info* info) {
     if (!n || !info) return false;
-    *info={1,addon::name,16};
+    *info={1,addon::name,17};
     return !n->isEditor && n->runtime==0x040020d0 && n->version>=6;
 }
 extern "C" __declspec(dllexport) bool NVSEPlugin_Load(const NVSE* n) {

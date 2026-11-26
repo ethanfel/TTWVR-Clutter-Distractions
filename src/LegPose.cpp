@@ -10,7 +10,7 @@ namespace crouch {
 namespace {
 using world::Ptr;
 
-// TTWVR 1.1.7 reapplies these world transforms during the scene graph update.
+// TTWVR reapplies these world transforms during the scene graph update.
 struct BonePose {
     Ptr node;
     Vec position;
@@ -66,20 +66,21 @@ void __cdecl applyKneelingPose(Ptr node,const BonePose* native) {
 }
 } // namespace
 
-void bindLegPose(unsigned char* host) {
-    auto call=host+0x45ddef;
+void bindLegPose(controller::Host host) {
+    const auto& layout=host.layout->crouch;
+    auto call=host.base+layout.poseCall;
     // Match TTWVR's lookup, the two pose arguments and the original call.
-    if (host[0x45dddf]!=0xe8 || host+0x45dde4+world::field<int>(host,0x45dde0)!=host+0x45e860 ||
+    if (call[-16]!=0xe8 || call-11+world::field<int>(call-15,0)!=host.base+layout.findPose ||
         std::memcmp(call-2,"\x57\x56\xe8",3) ||
-        call+5+world::field<int>(call,1)!=host+0x45e290 ||
+        call+5+world::field<int>(call,1)!=host.base+layout.applyPose ||
         std::memcmp(call+5,"\x8b\x47\x38\x83\xc4\x08",6)) return;
     DWORD old,unused;
     if (!VirtualProtect(call,5,PAGE_EXECUTE_READWRITE,&old)) return;
     gameThread=GetCurrentThreadId();
-    bones=reinterpret_cast<Ptr*>(host+0x10e5efc);
-    boundRoot=reinterpret_cast<Ptr*>(host+0x10e5ef8);
-    findPose=reinterpret_cast<FindPose>(host+0x45e860);
-    applyPose=reinterpret_cast<ApplyPose>(host+0x45e290);
+    bones=reinterpret_cast<Ptr*>(host.base+layout.bones);
+    boundRoot=reinterpret_cast<Ptr*>(host.base+layout.boundRoot);
+    findPose=reinterpret_cast<FindPose>(host.base+layout.findPose);
+    applyPose=reinterpret_cast<ApplyPose>(host.base+layout.applyPose);
     auto displacement=reinterpret_cast<std::uintptr_t>(applyKneelingPose)-reinterpret_cast<std::uintptr_t>(call+5);
     std::memcpy(call+1,&displacement,4);
     FlushInstructionCache(GetCurrentProcess(),call,5);

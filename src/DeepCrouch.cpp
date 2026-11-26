@@ -22,21 +22,24 @@ bool operand(const unsigned char* op,const void* expected) {
     return address==expected;
 }
 }
-void bind(unsigned char* host) {
-    // TTWVR 1.1.7 computes this target on manual sneak entry. Its rig update
-    // eases toward it each frame and handles standing up. Check the relocated
-    // operands as well as the load, store and smoothing instructions.
-    auto flag=host+0x10e7094;
-    auto goal=host+0x10e70a8;
-    if (host[0x7e407]!=0xa0 || host[0x7e412]!=0xa2 ||
-        !operand(host+0x7e408,flag) || !operand(host+0x7e413,flag) ||
-        std::memcmp(host+0x7e44d,"\xf3\x0f\x11\x0d",4) || !operand(host+0x7e451,goal) ||
-        std::memcmp(host+0x7e464,"\xf3\x0f\x10\x0d",4) || !operand(host+0x7e468,goal) ||
-        std::memcmp(host+0x7e486,"\xf3\x0f\x5c\xc2\xf3\x0f\x5f\xc1",8) ||
-        std::memcmp(host+0x7e4b1,"\xf3\x0f\x11\x86\x48\x0b\x00\x00",8)) return;
+void bind(controller::Host host) {
+    const auto& layout=host.layout->crouch;
+    auto code=host.base+layout.update;
+    auto flag=host.base+layout.manual;
+    auto goal=host.base+layout.target;
+    // Verify the relocated loads/stores, smoothing, and final rig field.
+    unsigned rigOffset;
+    std::memcpy(&rigOffset,code+0xae,sizeof rigOffset);
+    if (code[0]!=0xa0 || code[0x0b]!=0xa2 ||
+        !operand(code+1,flag) || !operand(code+0x0c,flag) ||
+        std::memcmp(code+0x46,"\xf3\x0f\x11\x0d",4) || !operand(code+0x4a,goal) ||
+        std::memcmp(code+0x5d,"\xf3\x0f\x10\x0d",4) || !operand(code+0x61,goal) ||
+        !operand(code+0x69,host.base+layout.smoothed) ||
+        std::memcmp(code+0x7f,"\xf3\x0f\x5c\xc2\xf3\x0f\x5f\xc1",8) ||
+        std::memcmp(code+0xaa,"\xf3\x0f\x11\x86",4) || rigOffset!=layout.rigHeightOffset) return;
     manual=flag;
     target=reinterpret_cast<float*>(goal);
-    smoothed=reinterpret_cast<const float*>(host+0x10e70ac);
+    smoothed=reinterpret_cast<const float*>(host.base+layout.smoothed);
     bindLegPose(host);
 }
 bool available() { return target!=nullptr; }

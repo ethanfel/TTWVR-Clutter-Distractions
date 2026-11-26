@@ -3,20 +3,25 @@
 #include <windows.h>
 #include <cstring>
 #include "Impacts.h"
+#include "HostLayout.h"
 
 namespace controller {
 using Poll=bool (__thiscall *)(void*,unsigned char*);
 constexpr unsigned clockMask=0x00ffffffu;
 
-inline unsigned char* host() {
-    auto host=reinterpret_cast<unsigned char*>(GetModuleHandleW(L"TTWVR.dll"));
-    if (!host) return nullptr;
-    auto dos=reinterpret_cast<IMAGE_DOS_HEADER*>(host);
-    auto nt=reinterpret_cast<IMAGE_NT_HEADERS32*>(host+dos->e_lfanew);
-    const unsigned char xr[]{0x88,0x47,0x25,0x8d,0x4c,0x24,0x28},vr[]{0x88,0x41,0x20,0x8d,0x4c,0x24};
-    if (nt->FileHeader.TimeDateStamp!=0x6afa9b4f || nt->OptionalHeader.SizeOfImage!=0x1d84000 ||
-        std::memcmp(host+0x6e986d,xr,sizeof xr) || std::memcmp(host+0x6c8954,vr,sizeof vr)) return nullptr;
-    return host;
+inline Host host() {
+    auto base=reinterpret_cast<unsigned char*>(GetModuleHandleW(L"TTWVR.dll"));
+    if (!base) return {};
+    auto dos=reinterpret_cast<IMAGE_DOS_HEADER*>(base);
+    auto nt=reinterpret_cast<IMAGE_NT_HEADERS32*>(base+dos->e_lfanew);
+    // Both backends store frame validity at offset 0x12c before returning.
+    const unsigned char storeValid[]={0x88,0x86,0x2c,0x01,0,0};
+    for (const auto& build:builds) {
+        if (nt->FileHeader.TimeDateStamp==build.timestamp && nt->OptionalHeader.SizeOfImage==build.imageSize &&
+            !std::memcmp(base+build.xr.validStore,storeValid,sizeof storeValid) &&
+            !std::memcmp(base+build.vr.validStore,storeValid,sizeof storeValid)) return {base,&build};
+    }
+    return {};
 }
 inline unsigned buttons(bool ok,const unsigned char* frame) {
     unsigned bits=0;
@@ -45,18 +50,20 @@ inline bool attach(void** slot,Poll& next,void* replacement) {
     VirtualProtect(slot,sizeof(void*),protection,&ignored);
     return installed;
 }
-// TTWVR 1.1.7 world-grab slots and its world-space physical pickup pose.
-inline unsigned char* heldObject(unsigned char* hostBase,int hand) {
-    if (!hostBase) return nullptr;
-    if (hostBase[0x1538805] && *reinterpret_cast<int*>(hostBase+0x1035e60)==hand)
-        return *reinterpret_cast<unsigned char**>(hostBase+0x15395e0);
-    if (hostBase[0x15388d4] && *reinterpret_cast<int*>(hostBase+0x15388d8)==hand)
-        return *reinterpret_cast<unsigned char**>(hostBase+0x15388dc);
+// Read the same two world-grab slots and physical pose that TTWVR uses.
+inline unsigned char* heldObject(Host host,int hand) {
+    if (!host) return nullptr;
+    for (const auto* slot:{&host.layout->primary,&host.layout->secondary}) {
+        if (host.base[slot->active] && *reinterpret_cast<int*>(host.base+slot->hand)==hand)
+            return *reinterpret_cast<unsigned char**>(host.base+slot->object);
+    }
     return nullptr;
 }
-inline bool handPoint(unsigned char* hostBase,int hand,noise::Vec& point) {
+inline bool handPoint(Host host,int hand,noise::Vec& point) {
     using Pose=bool (__thiscall*)(unsigned char*,int,int,noise::Vec*,float*);
     float matrix[9]{};
-    return hostBase && reinterpret_cast<Pose>(hostBase+0x70acb0)(hostBase+0x1d1fab0,hand,0,&point,matrix) && point.valid();
+    if (!host) return false;
+    auto pose=reinterpret_cast<Pose>(host.base+host.layout->physicalPose);
+    return pose(host.base+host.layout->manager,hand,0,&point,matrix) && point.valid();
 }
 }
